@@ -1,23 +1,23 @@
-You will need Vim compiled with Ruby support
+You will need Vim compiled with Ruby support, then build:
 
-genmake/make and then run install.sh
+% genmake make
+% make
+% ./install.sh
 
-in the root of the filesystem tree you want to scan, create a .vff file with
+In the root of the filesystem tree you want to scan, create a .vff file with
 1 extension per line, with the letters i or e before them. i for include, e for
 exclude. grep_i and grep_e for the grep mode.
 
 For example:
 
-[~/work/sooloos] % cat .vff
+[~/work/project] % cat .vff
 ic
 ics
 icpp
 ih
 ijava
-isooschema
 itxt
 ixml
-ibroo
 ilua
 ipl
 ipy
@@ -32,10 +32,8 @@ grep_ics
 grep_icpp
 grep_ih
 grep_ijava
-grep_isooschema
 grep_itxt
 grep_ixml
-grep_ibroo
 grep_ilua
 grep_ipl
 grep_ipy
@@ -45,8 +43,6 @@ grep_iawk
 grep_ised
 grep_ish
 grep_ibash
-
-
 
 If you specify only e's, then it'll allow everything except those e'd
 extensions.
