@@ -57,14 +57,14 @@
 :  silent! exec ":e " . g:vffWindowName
 :  setlocal noswapfile
 :  let g:vff_vffwin = winnr()
-:  syn on
 :  if g:vff_mode == 'find'
 :     syn match Title "Find File:.*"
 :  else
 :     syn match Title "Find Content:.*"
 :  endif
 :  syn match Title "----------------*"
-:  hi CursorLine   cterm=NONE ctermbg=darkblue ctermfg=white guibg=darkblue guifg=white
+:  hi CursorLine   cterm=NONE ctermbg=darkblue ctermfg=white
+:  setlocal cc=
 :  let &report = l:saveReport
 :  exec 'ruby vff.enter("' . g:vff_mode . '")'
 :  if g:vff_mode == 'grep'
