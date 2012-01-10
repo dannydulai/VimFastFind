@@ -32,7 +32,7 @@ solution "VimFastFindRoot"
 
         linksystemlibs "System"
 
-        if (platform.is("macosx")) then
+        if HAVE_MONO_POSIX then 
             linksystemlibs "Mono.Posix"
         end
 
