@@ -202,7 +202,6 @@ namespace VimFastFind {
     }
 
     class PathMatcher : Matcher {
-
         protected override void OnPathsInited() {
             _paths.Sort();
         }
@@ -238,7 +237,6 @@ namespace VimFastFind {
 
             return false;
         }
-
     }
 
     class GrepMatcher : Matcher {
@@ -247,6 +245,7 @@ namespace VimFastFind {
         static LockFreeQueue<KeyValuePair<GrepMatcher, string>> __incomingfiles = new LockFreeQueue<KeyValuePair<GrepMatcher, string>>();
         static AutoResetEvent __queuelock = new AutoResetEvent(false);
 
+        bool dead;
         int total;
 
         long _id;
@@ -268,6 +267,8 @@ namespace VimFastFind {
                 KeyValuePair<GrepMatcher, string> kvp;
                 while (__incomingfiles.Dequeue(out kvp)) {
                     try {
+                        if (kvp.Key.dead)
+                            continue;
                         string file = Path.Combine(kvp.Key._dir, kvp.Value);
                         if (!File.Exists(file)) continue;
                         using (StreamReader r = new StreamReader(file)) {
@@ -379,10 +380,16 @@ namespace VimFastFind {
         }
 
         public override void Dispose() {
+//            Console.WriteLine("disposing grep {0}", _id);
             lock (__all) {
                 __all.Remove(_id);
             }
             base.Dispose();
+            dead = true;
+        }
+
+        ~GrepMatcher() {
+//            Console.WriteLine("FINALIZED {0}", _id);
         }
     }
 
@@ -400,78 +407,85 @@ namespace VimFastFind {
         void ev_client() {
             try {
 //                    Console.WriteLine("listening");
-                Stream stream = _client.GetStream();
-                using (StreamWriter wtr = new StreamWriter(stream, Encoding.ASCII)) {
-                    using (StreamReader rdr = new StreamReader(stream)) {
+                using (Stream stream = _client.GetStream()) {
+                    using (StreamWriter wtr = new StreamWriter(stream, Encoding.ASCII)) {
+                        using (StreamReader rdr = new StreamReader(stream)) {
 
-                        while (true) {
-                            string s = rdr.ReadLine();
-                            if (s == null) return;
+                            while (true) {
+                                string s = rdr.ReadLine();
+                                if (s == null) return;
 
-//                            Console.WriteLine("got cmd {0}", s);
+                                //                            Console.WriteLine("got cmd {0}", s);
 
-                            if (s.StartsWith("r")) {
-                                // we could cache this by path
-//                                Console.WriteLine("go! {0}", s);
-                                _pathmatcher.Go(s.Substring(1));
-                                _grepmatcher.Go(s.Substring(1));
+                                if (s.StartsWith("r")) {
+                                    // we could cache this by path
+                                    //                                Console.WriteLine("go! {0}", s);
+                                    _pathmatcher.Go(s.Substring(1));
+                                    _grepmatcher.Go(s.Substring(1));
 
-                            } else if (s.StartsWith("i")) {
-                                _pathmatcher.IncludeExtension(s.Substring(1));
+                                } else if (s.StartsWith("i")) {
+                                    _pathmatcher.IncludeExtension(s.Substring(1));
 
-                            } else if (s.StartsWith("e")) {
-                                _pathmatcher.ExcludeExtension(s.Substring(1));
+                                } else if (s.StartsWith("e")) {
+                                    _pathmatcher.ExcludeExtension(s.Substring(1));
 
-                            } else if (s.StartsWith("grep_i")) {
-                                _grepmatcher.IncludeExtension(s.Substring(6));
+                                } else if (s.StartsWith("grep_i")) {
+                                    _grepmatcher.IncludeExtension(s.Substring(6));
 
-                            } else if (s.StartsWith("grep_e")) {
-                                _grepmatcher.ExcludeExtension(s.Substring(6));
+                                } else if (s.StartsWith("grep_e")) {
+                                    _grepmatcher.ExcludeExtension(s.Substring(6));
 
-                            } else if (s.StartsWith("grep_f")) {
-//                                Console.WriteLine("find! {0}", s);
-                                StringBuilder sb = new StringBuilder();
-                                int i = 0;
-                                foreach (string m in _grepmatcher.Match(s.Substring(6), 200)) {
-                                    sb.Append(m);
-                                    sb.Append("\n");
-                                    i++;
+                                } else if (s.StartsWith("grep_f")) {
+                                    //                                Console.WriteLine("find! {0}", s);
+                                    StringBuilder sb = new StringBuilder();
+                                    int i = 0;
+                                    foreach (string m in _grepmatcher.Match(s.Substring(6), 200)) {
+                                        sb.Append(m);
+                                        sb.Append("\n");
+                                        i++;
+                                    }
+                                    //                                Console.WriteLine(sb.ToString());
+                                    wtr.Write(sb.ToString());
+                                    wtr.Write("\n");
+
+                                } else if (s.StartsWith("f")) {
+                                    StringBuilder sb = new StringBuilder();
+                                    int i = 0;
+                                    foreach (string m in _pathmatcher.Match(s.Substring(1).ToLowerInvariant(), 200)) {
+                                        sb.Append(m);
+                                        sb.Append("\n");
+                                        i++;
+                                    }
+                                    wtr.Write(sb.ToString());
+                                    wtr.Write("\n");
+
+                                } else if (s.StartsWith("n")) {
+                                    wtr.Write("n\n");
+                                } else if (s.StartsWith("q")) {
+                                    return;
+                                } else {
+                                    wtr.Write("ERROR\n");
                                 }
-//                                Console.WriteLine(sb.ToString());
-                                wtr.Write(sb.ToString());
-                                wtr.Write("\n");
-
-                            } else if (s.StartsWith("f")) {
-                                StringBuilder sb = new StringBuilder();
-                                int i = 0;
-                                foreach (string m in _pathmatcher.Match(s.Substring(1).ToLowerInvariant(), 200)) {
-                                    sb.Append(m);
-                                    sb.Append("\n");
-                                    i++;
-                                }
-                                wtr.Write(sb.ToString());
-                                wtr.Write("\n");
-
-                            } else if (s.StartsWith("n")) {
-                                wtr.Write("n\n");
-                            } else if (s.StartsWith("q")) {
-                                return;
-                            } else {
-                                wtr.Write("ERROR\n");
+                                wtr.Flush();
                             }
-                            wtr.Flush();
                         }
                     }
                 }
             } catch (Exception ex) {
                 Console.WriteLine("got exception {0}", ex.ToString());
             } finally {
-                try { _client.Close(); } catch { }
-                _client = null;
-                if (_pathmatcher != null)
+                if (_client != null) {
+                    try { _client.Close(); } catch { }
+                    _client = null;
+                }
+                if (_pathmatcher != null) {
                     _pathmatcher.Dispose();
-                if (_grepmatcher != null)
+                    _pathmatcher = null;
+                }
+                if (_grepmatcher != null) {
                     _grepmatcher.Dispose();
+                    _grepmatcher = null;
+                }
             }
         }
     }
