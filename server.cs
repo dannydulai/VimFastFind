@@ -8,6 +8,7 @@ using System.Threading;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Linq;
 
 namespace VimFastFind {
     abstract class Matcher : IDisposable {
@@ -15,7 +16,7 @@ namespace VimFastFind {
         protected List<string> _paths = new List<string>();
         Dictionary<string, bool> _plusextensions = new Dictionary<string, bool>();
         Dictionary<string, bool> _minusextensions = new Dictionary<string, bool>();
-        FileSystemWatcher _fswatcher;
+        DirectoryWatcher _fswatcher;
 
         bool IsFileOk(string name) {
             string ext = Path.GetExtension(name).ToLower();
@@ -51,15 +52,17 @@ namespace VimFastFind {
             _dir = _dir.Trim();
 //            Console.WriteLine("watching {0}", _dir);
 
-            _fswatcher = new FileSystemWatcher();
-            _fswatcher.Path = _dir;
-            _fswatcher.IncludeSubdirectories = true;
-            _fswatcher.NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size;
-            _fswatcher.Changed += ev_FileChanged;
-            _fswatcher.Created += ev_FileChanged;
-            _fswatcher.Deleted += ev_FileChanged;
-            _fswatcher.Renamed += ev_FileRenamed;
-            _fswatcher.EnableRaisingEvents = true;
+            _fswatcher = new DirectoryWatcher(_dir);
+            _fswatcher.EnableWatchingContents = true;
+            _fswatcher.Initialize();
+
+#if PLATFORM_WINDOWS
+            _fswatcher.FileAdded += ev_FileChanged;
+            _fswatcher.FileRemoved += ev_FileChanged;
+            _fswatcher.FileModified += ev_FileChanged;
+#elif PLATFORM_MACOSX
+            _fswatcher.SubdirectoryChanged += ev_SubdirChanged;
+#endif
 
             foreach (DirectoryEntry entry in
                      FastDirectoryScanner.RecursiveScan(_dir,
@@ -85,58 +88,73 @@ namespace VimFastFind {
 //            Console.WriteLine("{0} paths found on initial scan of {1}", _paths.Count, dir);
         }
 
-        void ev_FileChanged(object source, FileSystemEventArgs e)
+        void ev_SubdirChanged(DirectoryWatcher source, string fulldirpath)
         {
-//                    Console.WriteLine("fc: {0}", e.ChangeType);
-            switch (e.ChangeType)
-            {
-                case WatcherChangeTypes.Created:
-                    if (!File.Exists(e.FullPath)) return;
-                    if (!IsFileOk(e.FullPath)) return;
-                    lock (_paths) {
-                        string f = TrimPath(e.FullPath);
+            string dirpath = TrimPath(fulldirpath);
+            if (dirpath[dirpath.Length-1] != Path.DirectorySeparatorChar)
+                dirpath += Path.DirectorySeparatorChar;
+
+            if (!Directory.Exists(fulldirpath)) {
+//                Console.WriteLine("subdir removed: {0}", dirpath);
+                lock (_paths) {
+                    int i = 0;
+                    while (i < _paths.Count) {
+                        string f = _paths[i++];
+                        if (f.StartsWith(dirpath)) {
+                            _paths.RemoveAt(--i);
+                            OnPathRemoved(f);
+                        }
+                    }
+                }
+            } else {
+//                Console.WriteLine("subdir changed: {0}", dirpath);
+
+                HashSet<string> filesindir = new HashSet<string>(Directory.GetFiles(fulldirpath).Where(x => IsFileOk(x)).Select(x => TrimPath(x)));
+
+                lock (_paths) {
+                    int i = 0;
+                    while (i < _paths.Count) {
+                        string path = _paths[i++];
+                        if (path.StartsWith(dirpath)) {
+                            if (filesindir.Contains(path)) {
+                                OnPathChanged(path);
+                            } else {
+                                _paths.RemoveAt(--i);
+                                OnPathRemoved(path);
+                            }
+                            filesindir.Remove(path);
+                        }
+                    }
+                    foreach (string f in filesindir) {
                         _paths.Add(f);
                         OnPathAdded(f);
                     }
-                    break;
-                case WatcherChangeTypes.Deleted:
-                    if (!IsFileOk(e.FullPath)) return;
-                    lock (_paths) {
-                        string f = TrimPath(e.FullPath);
-                        _paths.Remove(f);
-                        OnPathRemoved(f);
-                    }
-                    break;
-                case WatcherChangeTypes.Changed:
-//                    Console.WriteLine("CHANGED1");
-                    if (!IsFileOk(e.FullPath)) return;
-                    lock (_paths) {
-                        string f = TrimPath(e.FullPath);
-//                    Console.WriteLine("CHANGED2");
-                        OnPathChanged(f);
-                    }
-                    break;
+                }
             }
         }
 
-        void ev_FileRenamed(object source, RenamedEventArgs e)
+        void ev_FileChanged(DirectoryWatcher source, string fullpath)
         {
-            lock (_paths) {
-                string f1 = null, f2 = null;
-                if (IsFileOk(e.OldFullPath)) {
-                    f1 = TrimPath(e.OldFullPath);
-                    _paths.Remove(f1);
+            if (!IsFileOk(fullpath)) return;
+
+//            Console.WriteLine("filechnaged: {0}", fullpath);
+
+            if (File.Exists(fullpath)) {
+                lock (_paths) {
+                    string f = TrimPath(fullpath);
+                    if (_paths.Contains(f)) {
+                        OnPathChanged(f);
+                    } else {
+                        _paths.Add(f);
+                        OnPathAdded(f);
+                    }
                 }
-                if (IsFileOk(e.FullPath)) {
-                    f2 = TrimPath(e.FullPath);
-                    _paths.Add(f2);
+            } else {
+                lock (_paths) {
+                    string f = TrimPath(fullpath);
+                    _paths.Remove(f);
+                    OnPathRemoved(f);
                 }
-                if (f1 != null && f2 == null)
-                    OnPathRemoved(f1);
-                else if (f1 == null && f2 != null)
-                    OnPathAdded(f2);
-                else if (f1 != null && f2 != null)
-                    OnPathRenamed(f1, f2);
             }
         }
 
@@ -303,12 +321,13 @@ namespace VimFastFind {
             __queuelock.Set();
         }
         protected override void OnPathRemoved(string path) {
+//            Console.WriteLine("removing file {0}", Path.Combine(this._dir, path));
             lock (_contents) {
                 _contents.Remove(path);
             }
         }
         protected override void OnPathChanged(string path) {
-//                    Console.WriteLine("CHANGED3 {0}", path);
+//            Console.WriteLine("changed file {0}", Path.Combine(this._dir, path));
             __incomingfiles.Enqueue(new KeyValuePair<GrepMatcher, string>(this, path));
             __queuelock.Set();
         }

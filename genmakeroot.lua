@@ -38,9 +38,15 @@ solution "VimFastFindRoot"
 
         flags { "Unsafe" }
 
+
+        linkfiles "MonoMac"
+
         compilefiles {
             "server.cs",
-            "utils.cs"
+            "utils.cs",
+            "DirectoryWatcher.cs",
+            "VolumeWatcher.cs",
+            "osx_utils.cs",
         }
 
     done "VFFServer"
