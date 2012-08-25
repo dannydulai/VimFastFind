@@ -28,6 +28,7 @@ namespace VimFastFind {
         }
 
         public string TrimPath(string fullpath) {
+            if (_dir == fullpath) return "";
             return fullpath.Substring(_dir.Length+1);
         }
 
@@ -50,6 +51,9 @@ namespace VimFastFind {
             _dir = dir;
 #endif
             _dir = _dir.Trim();
+            while (_dir.Length > 0 && _dir[_dir.Length-1] == Path.DirectorySeparatorChar)
+                _dir = _dir.Substring(0, _dir.Length-1);
+
 //            Console.WriteLine("watching {0}", _dir);
 
             _fswatcher = new DirectoryWatcher(_dir);
@@ -91,7 +95,7 @@ namespace VimFastFind {
         void ev_SubdirChanged(DirectoryWatcher source, string fulldirpath)
         {
             string dirpath = TrimPath(fulldirpath);
-            if (dirpath[dirpath.Length-1] != Path.DirectorySeparatorChar)
+            if (dirpath.Length > 0 && dirpath[dirpath.Length-1] != Path.DirectorySeparatorChar)
                 dirpath += Path.DirectorySeparatorChar;
 
             if (!Directory.Exists(fulldirpath)) {
