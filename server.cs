@@ -119,7 +119,10 @@ namespace VimFastFind {
                     int i = 0;
                     while (i < _paths.Count) {
                         string path = _paths[i++];
-                        if (path.StartsWith(dirpath)) {
+                        string dir = Path.GetDirectoryName(path);
+                        if (dir.Length > 0 && dir[dir.Length-1] != Path.DirectorySeparatorChar)
+                            dir += Path.DirectorySeparatorChar;
+                        if (dir == dirpath) {
                             if (filesindir.Contains(path)) {
                                 OnPathChanged(path);
                             } else {
