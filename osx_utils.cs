@@ -23,7 +23,7 @@ namespace OSXUtils
             {
                 //Console.WriteLine("RunloopHelper: creating run loop in bg thread");
 
-                IntPtr runloop;
+                IntPtr runloop = IntPtr.Zero;
                 var mre = new ManualResetEvent(false);
 
                 new Thread((ThreadStart)delegate
@@ -820,9 +820,9 @@ namespace OSXUtils
         // resolves any aliases and return true path
         public static string ResolvePath(string path)
         {
-            IntPtr url;
-            IntPtr resolved_url;
-            IntPtr resolved_path;
+            IntPtr url           = IntPtr.Zero;
+            IntPtr resolved_url  = IntPtr.Zero;
+            IntPtr resolved_path = IntPtr.Zero;
             string ret = path;
 
             using (CFString pathstr = new CFString(path))
@@ -1324,7 +1324,7 @@ namespace OSXUtils
         static string _GetMessage(ref AE.AEDesc ae_event)
         {
             UInt32 type;
-            IntPtr buf;
+            IntPtr buf = IntPtr.Zero;
             int size;
 
             try
@@ -1355,7 +1355,7 @@ namespace OSXUtils
 
         static void _PutMessage(ref AE.AEDesc ae_event, string msg)
         {
-            IntPtr buf;
+            IntPtr buf = IntPtr.Zero;
             try
             {
                 byte[] data = Encoding.UTF8.GetBytes(msg);
