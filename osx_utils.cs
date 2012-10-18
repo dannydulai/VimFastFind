@@ -12,6 +12,9 @@ namespace OSXUtils
     {
         public static bool ApplicationWillSpinMainRunLoop;
 
+        static object _lock = new object();
+        static IntPtr _runloop = IntPtr.Zero;
+
         public static IntPtr GetRunLoop()
         {
             if (ApplicationWillSpinMainRunLoop)
@@ -21,23 +24,29 @@ namespace OSXUtils
             }
             else
             {
-                //Console.WriteLine("RunloopHelper: creating run loop in bg thread");
-
-                IntPtr runloop = IntPtr.Zero;
-                var mre = new ManualResetEvent(false);
-
-                new Thread((ThreadStart)delegate
+                if (_runloop == IntPtr.Zero)
                 {
-                    runloop = CoreFoundation.CFRunLoopGetCurrent();
-                    mre.Set();
-                    while (true) {
-                        CoreFoundation.CFRunLoopRun();
-                        Thread.Sleep(500);
+                    lock (_lock)
+                    {
+                        if (_runloop == IntPtr.Zero)
+                        {
+                            //Console.WriteLine("RunloopHelper: creating run loop in bg thread");
+                            var mre = new ManualResetEvent(false);
+                            new Thread((ThreadStart)delegate
+                            {
+                                _runloop = CoreFoundation.CFRunLoopGetCurrent();
+                                mre.Set();
+                                while (true) {
+                                    CoreFoundation.CFRunLoopRun();
+                                    Thread.Sleep(500);
+                                }
+                            }) { IsBackground = true }.Start();
+                            mre.WaitOne();
+                        }
                     }
-                }) { IsBackground = true }.Start();
+                }
 
-                mre.WaitOne();
-                return runloop;
+                return _runloop;
             }
         }
     }
