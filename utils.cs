@@ -179,6 +179,28 @@ namespace VimFastFind
             }
         }
 
+#elif PLATFORM_LINUX
+        static readonly long EPOCH_TICKS = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc).Ticks;
+        static IList<DirectoryEntry> Scan(string path, bool recurse, Predicate<string> cb_shouldskipdir)
+        {
+            // I've verified that this returns the exact same timestamps as the other branch of code
+            // on linux + mac. In theory, this should perform just as well, but unsure. We can optimize
+            // further later with p/invoke if necessary
+            var ret = new List<DirectoryEntry>();
+            DirectoryInfo info = new DirectoryInfo(path);
+            foreach (var entry in info.EnumerateFileSystemInfos()) {
+                var attrs = entry.Attributes & ~(FileAttributes.Hidden | FileAttributes.ReadOnly);
+                if ((attrs & FileAttributes.Directory) != 0) {
+                    if (recurse && cb_shouldskipdir(entry.Name)) continue;
+                    ret.Add(new DirectoryEntry(path, entry.FullName, 0, false));
+                    if (recurse)
+                        ret.AddRange(Scan(entry.FullName, true, cb_shouldskipdir));
+                } else {
+                    ret.Add(new DirectoryEntry(path, entry.FullName, (entry.LastWriteTimeUtc.Ticks - EPOCH_TICKS) / 10000000, true));
+                }
+            }
+            return ret;
+        }
 #else
 #if !HAVE_MONO_POSIX
         static readonly long EPOCH_TICKS = new DateTime(1970, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc).Ticks;
