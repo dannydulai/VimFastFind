@@ -1,6 +1,8 @@
 //#define USE_REGEX
 
 using System;
+using System.Runtime.InteropServices;
+using System.IO.MemoryMappedFiles;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Collections.Generic;
@@ -82,11 +84,8 @@ namespace VimFastFind {
                                                         name == "temp";
                                                         }))
             {
-                if (entry.IsFile) {
-                    if (IsFileOk(entry.Name)) {
-                        _paths.Add(TrimPath(entry.FullPath));
-                    }
-                }
+                if (entry.IsFile && IsFileOk(entry.Name))
+                    _paths.Add(TrimPath(entry.FullPath));
             }
             OnPathsInited();
 //            Console.WriteLine("{0} paths found on initial scan of {1}", _paths.Count, dir);
@@ -174,48 +173,48 @@ namespace VimFastFind {
         protected abstract bool DoMatch(string path, string needle, out int score, ref object obj, List<string> outs);
 
         public TopN<string> Match(string s, int count) {
+            TopN<string> matches = new TopN<string>(count);
+
+            System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+            sw.Start();
+
+            LockFreeQueue<string> queue = new LockFreeQueue<string>();
+            int queuecount;
             lock (_paths) {
-                TopN<string> matches = new TopN<string>(count);
-
-                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
-                sw.Start();
-
-                LockFreeQueue<string> queue = new LockFreeQueue<string>();
                 int i = 0;
                 while (i < _paths.Count)
                     queue.Enqueue(_paths[i++]);
-
-                int queuecount = _paths.Count;
-
-                ManualResetEvent mre = new ManualResetEvent(false);
-                WaitCallback work = delegate {
-                    string path;
-                    List<string> outs = new List<string>();
-                    object obj = null;
-                    int score;
-                    while (queue.Dequeue(out path)) {
-                        if (DoMatch(path, s, out score, ref obj, outs)) {
-                            lock (matches) {
-                                foreach (string o in outs)
-                                    matches.Add(score, o);
-                            }
-                        }
-                        if (Interlocked.Decrement(ref queuecount) == 0)
-                            mre.Set();
-                        else
-                            outs.Clear();
-                    }
-                };
-
-                i = 0;
-                while (i++ < Environment.ProcessorCount)
-                    ThreadPool.QueueUserWorkItem(work);
-
-                mre.WaitOne();
-
-//                Console.WriteLine("{0}ms elapsed", sw.ElapsedMilliseconds);
-                return matches;
+                queuecount = _paths.Count;
             }
+
+            ManualResetEvent mre = new ManualResetEvent(false);
+            WaitCallback work = delegate {
+                string path;
+                List<string> outs = new List<string>();
+                object obj = null;
+                int score;
+                while (queue.Dequeue(out path)) {
+                    if (DoMatch(path, s, out score, ref obj, outs)) {
+                        lock (matches) {
+                            foreach (string o in outs)
+                                matches.Add(score, o);
+                        }
+                    }
+                    if (Interlocked.Decrement(ref queuecount) == 0)
+                        mre.Set();
+                    else
+                        outs.Clear();
+                }
+            };
+
+            int cpu = 0;
+            while (cpu++ < Environment.ProcessorCount)
+                ThreadPool.QueueUserWorkItem(work);
+
+            mre.WaitOne();
+
+            //                Console.WriteLine("{0}ms elapsed", sw.ElapsedMilliseconds);
+            return matches;
         }
 
         public virtual void Dispose() {
@@ -264,6 +263,94 @@ namespace VimFastFind {
         }
     }
 
+    unsafe class Map {
+        // uses memmem on windows, which is why needle_len is needed. uses
+        // strnstr on mac, though, so needle must be null-terminated.
+        static unsafe sbyte* strnstr(sbyte* haystack, int haystack_len, sbyte* needle, int needle_len)
+        {
+#if PLATFORM_WINDOWS
+            return memmem(haystack, (uint)haystack_len, needle, (uint)needle_len);
+#else
+            return strnstr(haystack, needle, new UIntPtr((uint)haystack_len));
+#endif
+        }
+
+#if PLATFORM_WINDOWS
+        // use uint for size_t here since this lib is always built 32-bit
+        [DllImport("storagestringutils", CharSet=CharSet.Ansi, CallingConvention=CallingConvention.Cdecl)]
+        static extern sbyte * memmem(sbyte* haystack, uint haystack_len, IntPtr needle, uint needle_len);
+#else
+        // use UIntPtr for size_t here since we don't know how wide size_t is on this platform's libc
+        [DllImport("libc", CharSet=CharSet.Ansi)]
+        static unsafe extern sbyte* strnstr(sbyte* s1, sbyte* s2, UIntPtr n);
+#endif
+
+        MemoryMappedFile mmf;
+        MemoryMappedViewAccessor va;
+        Microsoft.Win32.SafeHandles.SafeMemoryMappedViewHandle buf;
+        int filelen;
+        sbyte* ptr;
+
+        public void Open(string file) {
+            using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
+                mmf = MemoryMappedFile.CreateFromFile(fs, null, 0, MemoryMappedFileAccess.Read, null, HandleInheritability.None, true);
+                va = mmf.CreateViewAccessor(0L, 0L, MemoryMappedFileAccess.Read);
+                buf = va.SafeMemoryMappedViewHandle;
+                byte *p = null;
+                buf.AcquirePointer(ref p);
+                ptr = (sbyte*)p;
+                filelen = (int)va.Capacity;
+            }
+        }
+
+        public void Close() {
+            try { buf.ReleasePointer(); } catch { }
+            try { buf.Dispose(); } catch { }
+            try { va.Dispose(); } catch { }
+            try { mmf.Dispose(); } catch { }
+        }
+
+        public static void FreeString(sbyte *s) {
+            Marshal.FreeHGlobal(new IntPtr(s));
+        }
+
+        public int IndexOf(int idx, string s, ref sbyte* str) {
+            if (idx >= filelen)
+                return -1;
+
+            if (str == null)
+                str = (sbyte*)(Marshal.StringToHGlobalAnsi(s).ToPointer());
+
+            sbyte* ret = strnstr(ptr + idx, (int)(filelen-idx), str, s.Length);
+            if (ret == null)
+                return -1;
+            return (int)(ret - ptr);
+        }
+
+        public string GetLineAt(int idx, out int endidx) {
+            if (idx >= filelen) {
+                endidx = idx;
+                return null;
+            }
+
+            unsafe {
+                sbyte *startoffile = ptr;
+                sbyte *endoffile = startoffile + filelen;
+
+                sbyte *e = startoffile + idx;
+                while (e < endoffile && *e != (sbyte)'\n') e++; 
+
+                sbyte *s = startoffile + idx;
+                while (s >= startoffile && *s != (sbyte)'\n') s--;
+                s++;
+                if (s != startoffile) s++;
+
+                endidx = (int)(e - startoffile);
+                return new string(s, 0, (int)(e-s), Encoding.UTF8);
+            }
+        }
+    }
+
     class GrepMatcher : Matcher {
         static long __id = 0;
         static Dictionary<long, GrepMatcher> __all = new Dictionary<long, GrepMatcher>();
@@ -271,10 +358,9 @@ namespace VimFastFind {
         static AutoResetEvent __queuelock = new AutoResetEvent(false);
 
         bool dead;
-        int total;
 
         long _id;
-        Dictionary<string, string> _contents = new Dictionary<string, string>();
+        Dictionary<string, Map> _contents = new Dictionary<string, Map>();
 
         static GrepMatcher() {
             (new Thread(ev_read) { IsBackground = true }).Start();
@@ -296,19 +382,25 @@ namespace VimFastFind {
                             continue;
                         string file = Path.Combine(kvp.Key._dir, kvp.Value);
                         if (!File.Exists(file)) continue;
-                        using (StreamReader r = new StreamReader(file)) {
-                            string v = r.ReadToEnd();
-                            kvp.Key.total += v.Length;
-                            lock (kvp.Key._contents) {
-                                kvp.Key._contents[kvp.Value] = v;
-                            }
+                        Map m = new Map();
+                        m.Open(file);
+                        lock (kvp.Key._contents) {
+                            Map o;
+                            if (kvp.Key._contents.TryGetValue(kvp.Value, out o))
+                                o.Close();
+                            kvp.Key._contents[kvp.Value] = m;
                         }
-                    } catch (IOException) {
+
+                    } catch (ArgumentException) {
+                        // skipping because this is just a blank file
+
+                    } catch (IOException e) {
+                        Console.WriteLine("IO exception opening {0} for grepping: {1} ", kvp.Value, e);
                         __incomingfiles.Enqueue(kvp);
                         Thread.Sleep(100);
 
                     } catch (Exception e) {
-                        Console.WriteLine(e.ToString());
+                        Console.WriteLine("exception opening {0} for grepping: {1} ", kvp.Value, e);
                     }
                 }
                 __queuelock.WaitOne();
@@ -330,7 +422,9 @@ namespace VimFastFind {
         protected override void OnPathRemoved(string path) {
 //            Console.WriteLine("removing file {0}", Path.Combine(this._dir, path));
             lock (_contents) {
+                Map m = _contents[path];
                 _contents.Remove(path);
+                m.Close();
             }
         }
         protected override void OnPathChanged(string path) {
@@ -347,33 +441,10 @@ namespace VimFastFind {
             }
         }
         protected override bool DoMatch(string path, string needle, out int score, ref object obj, List<string> outs) {
-#if USE_REGEX
-            Regex rx = null;
-            if (obj == null) {
-                rx = new Regex(needle, RegexOptions.IgnoreCase);
-                obj = rx;
-            } else {
-                rx = (Regex)obj;
-            }
-
-            string contents;
+//            Console.WriteLine("matching {0} against {1}", path, needle);
+            Map contents;
             if (!_contents.TryGetValue(path, out contents)) {
-                score = 0;
-                return false;
-            }
-            MatchCollection matches = rx.Matches(contents);
-            if (matches.Count > 0) {
-                score = 100;
-                return true;
-            } else {
-                score = 0;
-                return false;
-            }
-#else
-//                        Console.WriteLine("matching {0} against {1}", path, needle);
-            string contents;
-            if (!_contents.TryGetValue(path, out contents)) {
-//                        Console.WriteLine("{0} not found", path);
+//                Console.WriteLine("{0} not found", path);
                 score = 0;
                 return false;
             }
@@ -381,28 +452,25 @@ namespace VimFastFind {
             score = 0;
             bool ret = false;
 
-            int idx = 0;
-            while (true) {
-                idx = contents.IndexOf(needle, idx, StringComparison.Ordinal);
-                if (idx == -1) break;
+            unsafe {
+                sbyte* buf = null;
+                int idx = 0;
+                while (true) {
+                    idx = contents.IndexOf(idx, needle, ref buf);
+                    if (idx == -1) break;
 
-                int oidx = idx;
+                    int eidx;
+                    string line = contents.GetLineAt(idx, out eidx);
 
-                int eidx = idx;
-                while (eidx < contents.Length && contents[eidx] != '\n') eidx++;
-                if (eidx != contents.Length) eidx++;
-
-                while (idx > 0 && contents[idx] != '\n') idx--;
-                if (contents[idx] == '\n') idx++;
-
-                outs.Add(path.Replace("\\", "/") + "(" + (oidx+1) + "):" + contents.Substring(idx, eidx-idx-1));
-                score = 100;
-                idx = eidx;
-                ret = true;
-                if (idx+1 >= contents.Length) break;
+                    outs.Add(path.Replace("\\", "/") + "(" + idx.ToString() + "):" + line);
+                    score = 100;
+                    idx = eidx+1;
+                    ret = true;
+                }
+                if (buf != null)
+                    Map.FreeString(buf);
             }
             return ret;
-#endif
         }
 
         public override void Dispose() {
@@ -410,6 +478,8 @@ namespace VimFastFind {
             lock (__all) {
                 __all.Remove(_id);
             }
+            foreach (var kvp in _contents)
+                kvp.Value.Close();
             base.Dispose();
             dead = true;
         }
