@@ -39,16 +39,31 @@ solution "VimFastFindRoot"
         flags { "Unsafe" }
 
 
-        linkfiles "MonoMac"
-
         compilefiles {
             "server.cs",
             "utils.cs",
             "DirectoryWatcher.cs",
             "VolumeWatcher.cs",
-            "osx_utils.cs",
         }
 
+    if platform.is('windows') then
+        copyprojects "storagestringutils"
+    elseif platform.is('macosx') then
+        compilefiles "osx_utils.cs"
+        linkfiles "MonoMac"
+    end
+
     done "VFFServer"
+
+    if platform.is('windows') then
+        project "storagestringutils"
+            category "native"
+            kind "SharedLib"
+            language "C"
+            includedirs "."
+            compilefiles "storage_stringutils.c"
+        done "storagestringutils"
+    end
+
 
 done "VimFastFindRoot"

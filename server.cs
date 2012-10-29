@@ -278,7 +278,7 @@ namespace VimFastFind {
 #if PLATFORM_WINDOWS
         // use uint for size_t here since this lib is always built 32-bit
         [DllImport("storagestringutils", CharSet=CharSet.Ansi, CallingConvention=CallingConvention.Cdecl)]
-        static extern sbyte * memmem(sbyte* haystack, uint haystack_len, IntPtr needle, uint needle_len);
+        static extern sbyte * memmem(sbyte* haystack, uint haystack_len, sbyte* needle, uint needle_len);
 #else
         // use UIntPtr for size_t here since we don't know how wide size_t is on this platform's libc
         [DllImport("libc", CharSet=CharSet.Ansi)]
