@@ -47,6 +47,10 @@ solution "VimFastFindRoot"
         }
 
     if platform.is('windows') then
+        compilefiles {
+            "DriveDetector.cs",
+            "win_utils.cs",
+        }
         copyprojects "storagestringutils"
     elseif platform.is('macosx') then
         compilefiles "osx_utils.cs"
