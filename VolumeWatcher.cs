@@ -5,9 +5,7 @@ using System.Collections.Generic;
 using System.Windows.Forms;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
-#if JEREMIAHFIXME
 using Dolinay; // DriveDetector
-#endif
 #elif PLATFORM_MACOSX
 using MonoMac;
 using MonoMac.Foundation;
@@ -38,9 +36,7 @@ namespace VimFastFind
         VolumeWatcherHelper _helper;
 #pragma warning restore 0414
 #elif PLATFORM_WINDOWS
-#if JEREMIAHFIXME
         DriveDetector _detector;
-#endif
         string _hookeddrive;
 #endif
 
@@ -51,7 +47,6 @@ namespace VimFastFind
 #if PLATFORM_MACOSX
             _helper = new VolumeWatcherHelper(this);
 #elif PLATFORM_WINDOWS
-#if JEREMIAHFIXME
             _detector = new DriveDetector();
             _detector.DeviceArrived += delegate(object sender, DriveDetectorEventArgs e) {
                 if (e.Drive == _hookeddrive) e.HookQueryRemove = true;
@@ -66,7 +61,6 @@ namespace VimFastFind
                 // at a time. may need to fix if this event is needed.
                 ev_VolumeChanged(VolumeWatcherEvent.WillUnmount, e.Drive);
             };
-#endif
 #else
             throw new NotSupportedException();
 #endif
@@ -110,9 +104,7 @@ namespace VimFastFind
 #if PLATFORM_MACOSX
             _helper.Dispose();
 #elif PLATFORM_WINDOWS
-#if JEREMIAHFIXME
             _detector.Dispose();
-#endif
 #else
             throw new NotSupportedException();
 #endif
@@ -198,9 +190,7 @@ namespace VimFastFind
             set
             {
                 _hookeddrive = value;
-#if JEREMIAHFIXME
                 _detector.EnableQueryRemove(value);
-#endif
             }
         }
 #endif
