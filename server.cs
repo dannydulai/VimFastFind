@@ -443,10 +443,12 @@ namespace VimFastFind {
         protected override bool DoMatch(string path, string needle, out int score, ref object obj, List<string> outs) {
 //            Console.WriteLine("matching {0} against {1}", path, needle);
             Map contents;
-            if (!_contents.TryGetValue(path, out contents)) {
-//                Console.WriteLine("{0} not found", path);
-                score = 0;
-                return false;
+            lock (_contents) {
+                if (!_contents.TryGetValue(path, out contents)) {
+                    //                Console.WriteLine("{0} not found", path);
+                    score = 0;
+                    return false;
+                }
             }
 
             score = 0;
@@ -478,8 +480,10 @@ namespace VimFastFind {
             lock (__all) {
                 __all.Remove(_id);
             }
-            foreach (var kvp in _contents)
-                kvp.Value.Close();
+            lock (_contents) {
+                foreach (var kvp in _contents)
+                    kvp.Value.Close();
+            }
             base.Dispose();
             dead = true;
         }
