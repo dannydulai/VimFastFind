@@ -16,17 +16,42 @@ namespace VimFastFind {
     abstract class Matcher : IDisposable {
         protected string _dir;
         protected List<string> _paths = new List<string>();
-        Dictionary<string, bool> _plusextensions = new Dictionary<string, bool>();
-        Dictionary<string, bool> _minusextensions = new Dictionary<string, bool>();
+
+        List<MatchRule> _rules = new List<MatchRule>();
         DirectoryWatcher _fswatcher;
 
+        class MatchRule {
+            public bool Include;
+            public string[] Values;
+            public bool Match(string e) {
+                int i = 0;
+                int j = 0;
+                while (j < Values.Length) {
+                    var v = Values[j++];
+                    if (v == "")
+                        continue;
+                    i = e.IndexOf(v, i);
+                    if (i == -1)
+                        return false;
+                    i += v.Length;
+                }
+                if (Values[Values.Length-1] == "")
+                    return true;
+                return i == e.Length;
+            }
+        }
+
         bool IsFileOk(string name) {
-            string ext = Path.GetExtension(name).ToLower();
-            if (_plusextensions.Count != 0 && !_plusextensions.ContainsKey(ext))
-                return false;
-            else if (_minusextensions.Count != 0 && _minusextensions.ContainsKey(ext))
-                return false;
-            return true;
+            foreach (var mr in _rules) {
+                if (mr.Include) {
+                    if (mr.Match(name))
+                        return true;
+                } else {
+                    if (mr.Match(name))
+                        return false;
+                }
+            }
+            return false;
         }
 
         public string TrimPath(string fullpath) {
@@ -34,12 +59,12 @@ namespace VimFastFind {
             return fullpath.Substring(_dir.Length+1);
         }
 
-        public void IncludeExtension(string e) {
-            _plusextensions["." + e.ToLower()] = true;
+        public void Include(string e) {
+            _rules.Add(new MatchRule() { Include = true, Values = e.Split(new char[] { '*' }) });
 //            Console.WriteLine("+ {0}", e);
         }
-        public void ExcludeExtension(string e) {
-            _minusextensions["." + e.ToLower()] = true;
+        public void Exclude(string e) {
+            _rules.Add(new MatchRule() { Include = false, Values = e.Split(new char[] { '*' }) });
 //            Console.WriteLine("- {0}", e);
         }
 
@@ -84,7 +109,7 @@ namespace VimFastFind {
                                                         name == "temp";
                                                         }))
             {
-                if (entry.IsFile && IsFileOk(entry.Name))
+                if (entry.IsFile && IsFileOk(TrimPath(entry.FullPath)))
                     _paths.Add(TrimPath(entry.FullPath));
             }
             OnPathsInited();
@@ -338,7 +363,7 @@ namespace VimFastFind {
                 sbyte *endoffile = startoffile + filelen;
 
                 sbyte *e = startoffile + idx;
-                while (e < endoffile && *e != (sbyte)'\n') e++; 
+                while (e < endoffile && *e != (sbyte)'\n') e++;
 
                 sbyte *s = startoffile + idx;
                 while (s >= startoffile && *s != (sbyte)'\n') s--;
@@ -512,34 +537,49 @@ namespace VimFastFind {
                         using (StreamReader rdr = new StreamReader(stream)) {
 
                             while (true) {
-                                string s = rdr.ReadLine();
-                                if (s == null) return;
+                                string line = rdr.ReadLine();
+                                if (line == null) return;
+
+                                line = Regex.Replace(line, "#.*", "");
+                                line = Regex.Replace(line, @"^\s*$", "");
+                                if (line == "") continue;
+                                string[] s = line.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
                                 //                            Console.WriteLine("got cmd {0}", s);
 
-                                if (s.StartsWith("r")) {
+                                if (s[0] == "go") {
                                     // we could cache this by path
-                                    //                                Console.WriteLine("go! {0}", s);
-                                    _pathmatcher.Go(s.Substring(1));
-                                    _grepmatcher.Go(s.Substring(1));
+//                                Console.WriteLine("go! {0}", s);
+                                    _pathmatcher.Go(s[1]);
+                                    _grepmatcher.Go(s[1]);
 
-                                } else if (s.StartsWith("i")) {
-                                    _pathmatcher.IncludeExtension(s.Substring(1));
+                                } else if (s[0] == "config") {
+                                    if (s[1] == "include") {
+                                        _pathmatcher.Include(s[2]);
+                                        _grepmatcher.Include(s[2]);
 
-                                } else if (s.StartsWith("e")) {
-                                    _pathmatcher.ExcludeExtension(s.Substring(1));
+                                    } else if (s[1] == "exclude") {
+                                        _pathmatcher.Exclude(s[2]);
+                                        _grepmatcher.Exclude(s[2]);
 
-                                } else if (s.StartsWith("grep_i")) {
-                                    _grepmatcher.IncludeExtension(s.Substring(6));
+                                    } else if (s[1] == "find" && s[2] == "include") {
+                                        _pathmatcher.Include(s[3]);
 
-                                } else if (s.StartsWith("grep_e")) {
-                                    _grepmatcher.ExcludeExtension(s.Substring(6));
+                                    } else if (s[1] == "find" && s[2] == "exclude") {
+                                        _pathmatcher.Exclude(s[3]);
 
-                                } else if (s.StartsWith("grep_f")) {
+                                    } else if (s[1] == "grep" && s[2] == "include") {
+                                        _grepmatcher.Include(s[3]);
+
+                                    } else if (s[1] == "grep" && s[2] == "exclude") {
+                                        _grepmatcher.Exclude(s[3]);
+                                    }
+
+                                } else if (s[0] == "grep" && s[1] == "match") {
                                     //                                Console.WriteLine("find! {0}", s);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
-                                    foreach (string m in _grepmatcher.Match(s.Substring(6), 200)) {
+                                    foreach (string m in _grepmatcher.Match(s[2], 200)) {
                                         sb.Append(m);
                                         sb.Append("\n");
                                         i++;
@@ -548,10 +588,10 @@ namespace VimFastFind {
                                     wtr.Write(sb.ToString());
                                     wtr.Write("\n");
 
-                                } else if (s.StartsWith("f")) {
+                                } else if (s[0] == "find" && s[1] == "match") {
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
-                                    foreach (string m in _pathmatcher.Match(s.Substring(1).ToLowerInvariant(), 200)) {
+                                    foreach (string m in _pathmatcher.Match(s[2].ToLowerInvariant(), 200)) {
                                         sb.Append(m);
                                         sb.Append("\n");
                                         i++;
@@ -559,9 +599,9 @@ namespace VimFastFind {
                                     wtr.Write(sb.ToString());
                                     wtr.Write("\n");
 
-                                } else if (s.StartsWith("n")) {
-                                    wtr.Write("n\n");
-                                } else if (s.StartsWith("q")) {
+                                } else if (s[0] == "nop") {
+                                    wtr.Write("nop\n");
+                                } else if (s[0] == "quit") {
                                     return;
                                 } else {
                                     wtr.Write("ERROR\n");

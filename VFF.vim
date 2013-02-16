@@ -216,7 +216,7 @@
 :endfunction
 
 :ruby << EOF
-    require 'socket' 
+    require 'socket'
     require 'pathname'
     class VFF
         def initialize()
@@ -287,35 +287,40 @@ ERROR: No .vff file found!
 
 Hit ESCAPE or ENTER to close this window
 
-Create a .vff file in the directory you want to scan.
-All children directories will be scanned as well. The
-file format is 1 line per command. Commands include:
+In the root of the filesystem tree you want to scan, create a .vff file.
 
-i<file>
-e<file>
-grep_i<file>
-grep_e<file>
+After that, you can include or exclude files using the following statements:
 
-For example:
+[file|grep] include <pattern>
+[file|grep] exclude <pattern>
 
-ics
-icpp
-ic
-ih
-ilua
-ibroo
-isooschema
-ixml
-ifse
-grep_ics
-grep_icpp
-grep_ic
-grep_ih
-grep_ilua
-grep_ibroo
-grep_isooschema
-grep_ixml
-grep_ifse
+You can include/exclude for just find mode or just grep mode by prefixing the
+include/exclude statement with "file" or "grep". Not specifying "file" or
+"grep" will cause the include/exclude to match for both.
+
+Patterns are matched in order and short circuit on match. Unmatched files will
+be excluded.
+
+"#" is the start of a comment on any line. Blank lines are ignored.
+
+
+Example:
+
+% cat .vff
+include *.c
+include *.cs
+include *.cpp
+include *.h
+include *.java
+include *.lua
+include *.pl
+include *.py
+include *.rb
+include *.tcl
+include *.awk
+include *.sed
+include *.sh
+include *.bash
 
 
 
@@ -335,7 +340,7 @@ EOS
 
             begin
                 if (@sock)
-                    @sock.puts('n')
+                    @sock.puts('nop')
                     @sock.gets
                 end
             rescue
@@ -377,9 +382,9 @@ EOS
                 if (s == nil)
                     break
                 end
-                @sock.puts(s)
+                @sock.puts("config " + s)
             end
-            @sock.puts('r' + @path.to_s())
+            @sock.puts('go ' + @path.to_s())
         end
 
         def text_backspace(mode)
@@ -428,9 +433,9 @@ EOS
             begin
                 if ((mode == "find" && text != "") || (mode == "grep" && text.length >= 3))
                     if (mode == 'find')
-                        @sock.puts("f" + text)
+                        @sock.puts("find match " + text)
                     else
-                        @sock.puts("grep_f" + text)
+                        @sock.puts("grep match " + text)
                     end
                     while line = @sock.gets
                         line = line.gsub(/\r\n?/, "\n").chop
