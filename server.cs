@@ -232,11 +232,12 @@ namespace VimFastFind {
                 }
             };
 
-            int cpu = 0;
-            while (cpu++ < Environment.ProcessorCount)
-                ThreadPool.QueueUserWorkItem(work);
-
-            mre.WaitOne();
+            if (queuecount != 0) {
+                int cpu = 0;
+                while (cpu++ < Environment.ProcessorCount)
+                    ThreadPool.QueueUserWorkItem(work);
+                mre.WaitOne();
+            }
 
             //                Console.WriteLine("{0}ms elapsed", sw.ElapsedMilliseconds);
             return matches;
@@ -539,13 +540,13 @@ namespace VimFastFind {
                             while (true) {
                                 string line = rdr.ReadLine();
                                 if (line == null) return;
+//                            Console.WriteLine("got cmd {0}", line);
 
                                 line = Regex.Replace(line, "#.*", "");
                                 line = Regex.Replace(line, @"^\s*$", "");
                                 if (line == "") continue;
                                 string[] s = line.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
-                                //                            Console.WriteLine("got cmd {0}", s);
 
                                 if (s[0] == "go") {
                                     // we could cache this by path
@@ -604,7 +605,6 @@ namespace VimFastFind {
                                 } else if (s[0] == "quit") {
                                     return;
                                 } else {
-                                    wtr.Write("ERROR\n");
                                 }
                                 wtr.Flush();
                             }
