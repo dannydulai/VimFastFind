@@ -551,6 +551,7 @@ namespace VimFastFind {
                                 if (s[0] == "go") {
                                     // we could cache this by path
 //                                Console.WriteLine("go! {0}", s);
+                                    s = line.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
                                     _pathmatcher.Go(s[1]);
                                     _grepmatcher.Go(s[1]);
 
@@ -564,19 +565,24 @@ namespace VimFastFind {
                                         _grepmatcher.Exclude(s[2]);
 
                                     } else if (s[1] == "find" && s[2] == "include") {
+                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
                                         _pathmatcher.Include(s[3]);
 
                                     } else if (s[1] == "find" && s[2] == "exclude") {
+                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
                                         _pathmatcher.Exclude(s[3]);
 
                                     } else if (s[1] == "grep" && s[2] == "include") {
+                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
                                         _grepmatcher.Include(s[3]);
 
                                     } else if (s[1] == "grep" && s[2] == "exclude") {
+                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
                                         _grepmatcher.Exclude(s[3]);
                                     }
 
                                 } else if (s[0] == "grep" && s[1] == "match") {
+                                    s = line.Split(new char[] { ' ', '\t' }, 3, StringSplitOptions.RemoveEmptyEntries);
                                     //                                Console.WriteLine("find! {0}", s);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
@@ -590,6 +596,7 @@ namespace VimFastFind {
                                     wtr.Write("\n");
 
                                 } else if (s[0] == "find" && s[1] == "match") {
+                                    s = line.Split(new char[] { ' ', '\t' }, 3, StringSplitOptions.RemoveEmptyEntries);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
                                     foreach (string m in _pathmatcher.Match(s[2].ToLowerInvariant(), 200)) {
