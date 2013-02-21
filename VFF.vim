@@ -231,7 +231,6 @@
                     @foundvff = true
                     @vffpath = pn + ".vff"
                     @path = pn
-                    connect()
                     return true
                 end
                 pn = pn + ".."
@@ -415,9 +414,13 @@ EOS
         end
 
         def refresh(mode)
+            refresh2(mode, true)
+        end
+        def refresh2(mode, doretry)
             if (!@foundvff)
                 return false
             end
+            connect()
             buffer = VIM::Buffer.current
             buffer.delete(6)
             if (mode == 'find')
@@ -444,8 +447,16 @@ EOS
                         end
                         buffer.append(buffer.count, line)
                     end
+                    if (line == nil && doretry)
+                        connect()
+                        refresh2(mode, false)
+                    end
                 end
             rescue
+                if (doretry)
+                    connect()
+                    refresh2(mode, false)
+                end
             end
             buffer.append(buffer.count, "")
 
