@@ -369,7 +369,7 @@ namespace VimFastFind {
                 sbyte *s = startoffile + idx;
                 while (s >= startoffile && *s != (sbyte)'\n') s--;
                 s++;
-                if (s != startoffile) s++;
+//                if (s != startoffile) s++;
 
                 endidx = (int)(e - startoffile);
                 return new string(s, 0, (int)(e-s), Encoding.UTF8);
@@ -490,7 +490,7 @@ namespace VimFastFind {
                     int eidx;
                     string line = contents.GetLineAt(idx, out eidx);
 
-                    outs.Add(path.Replace("\\", "/") + "(" + idx.ToString() + "):" + line);
+                    outs.Add(path.Replace("\\", "/") + "(" + (idx+1).ToString() + "):" + line);
                     score = 100;
                     idx = eidx+1;
                     ret = true;
@@ -542,7 +542,7 @@ namespace VimFastFind {
                                 if (line == null) return;
 //                            Console.WriteLine("got cmd {0}", line);
 
-                                line = Regex.Replace(line, "#.*", "");
+                                line = Regex.Replace(line, @"^\s*#.*", "");
                                 line = Regex.Replace(line, @"^\s*$", "");
                                 if (line == "") continue;
                                 string[] s = line.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
@@ -583,7 +583,7 @@ namespace VimFastFind {
 
                                 } else if (s[0] == "grep" && s[1] == "match") {
                                     s = line.Split(new char[] { ' ', '\t' }, 3, StringSplitOptions.RemoveEmptyEntries);
-                                    //                                Console.WriteLine("find! {0}", s);
+//                                Console.WriteLine("find! {0}", line);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
                                     foreach (string m in _grepmatcher.Match(s[2], 200)) {
