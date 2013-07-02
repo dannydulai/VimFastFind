@@ -66,7 +66,7 @@
 :  hi CursorLine   cterm=NONE ctermbg=darkblue ctermfg=white
 :  setlocal cc=
 :  let &report = l:saveReport
-:  exec 'ruby vff.enter("' . g:vff_mode . '")'
+:  exec 'ruby $vff.enter("' . g:vff_mode . '")'
 :  if g:vff_mode == 'grep'
 :     if g:vff_lastline != -1
 :        exec g:vff_lastline
@@ -473,24 +473,24 @@ EOS
             VIM::command("let g:vffrubyret = \"" + (('..' + "/") * (rel.length) + path.join("/")) + "\"")
         end
     end
-    vff = VFF.new()
+    $vff = VFF.new()
 EOF
 
 
 :function! VffText (ch)
-:  exec "ruby vff.text_append('" . g:vff_mode . "' , '" . a:ch . "')"
+:  exec "ruby $vff.text_append('" . g:vff_mode . "' , '" . a:ch . "')"
 :  let g:vff_lastline = line(".")
 :  echo ""
 :endfunction
 
 :function! VffBackspace ()
-:  exec "ruby vff.text_backspace('" . g:vff_mode . "')"
+:  exec "ruby $vff.text_backspace('" . g:vff_mode . "')"
 :  let g:vff_lastline = line(".")
 :  echo ""
 :endfunction
 
 :function! VffClear ()
-:  exec "ruby vff.text_clear('" . g:vff_mode . "')"
+:  exec "ruby $vff.text_clear('" . g:vff_mode . "')"
 :  let g:vff_lastline = line(".")
 :  echo ""
 :endfunction
@@ -525,7 +525,7 @@ EOF
 :  let l:line = getline(".")
 :  quit
 :  if l:line != ""
-:    exec 'ruby vff.relativepath("' . getcwd() . '", "/' . substitute(l:line, "([0-9]\\+):.*", "", "") . '")'
+:    exec 'ruby $vff.relativepath("' . getcwd() . '", "/' . substitute(l:line, "([0-9]\\+):.*", "", "") . '")'
 :    silent exec "edit " . g:vffrubyret
 :    if g:vff_mode == 'grep'
 :      let l:offset = substitute(l:line, "^[^(]*(\\([0-9]\\+\\)):.*", "\\1", "")
