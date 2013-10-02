@@ -296,8 +296,12 @@ namespace VimFastFind {
         {
 #if PLATFORM_WINDOWS
             return memmem(haystack, (uint)haystack_len, needle, (uint)needle_len);
-#else
+#elif PLATFORM_LINUX
+            return memmem(haystack, new UIntPtr((uint)haystack_len), needle, new UIntPtr((uint)needle_len));
+#elif PLATFORM_MACOSX
             return strnstr(haystack, needle, new UIntPtr((uint)haystack_len));
+#else
+#       error Unsupported Platform
 #endif
         }
 
@@ -305,10 +309,16 @@ namespace VimFastFind {
         // use uint for size_t here since this lib is always built 32-bit
         [DllImport("storagestringutils", CharSet=CharSet.Ansi, CallingConvention=CallingConvention.Cdecl)]
         static extern sbyte * memmem(sbyte* haystack, uint haystack_len, sbyte* needle, uint needle_len);
-#else
+#elif PLATFORM_LINUX
+        // use UIntPtr for size_t here since we don't know how wide size_t is on this platform's libc
+        [DllImport("libc", CharSet=CharSet.Ansi, CallingConvention=CallingConvention.Cdecl)]
+        static extern sbyte * memmem(sbyte* haystack, UIntPtr haystack_len, sbyte* needle, UIntPtr needle_len);
+#elif PLATFORM_MACOSX
         // use UIntPtr for size_t here since we don't know how wide size_t is on this platform's libc
         [DllImport("libc", CharSet=CharSet.Ansi)]
         static unsafe extern sbyte* strnstr(sbyte* s1, sbyte* s2, UIntPtr n);
+#else
+#       error Unsupported Platform
 #endif
 
         MemoryMappedFile mmf;
