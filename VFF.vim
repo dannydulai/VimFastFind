@@ -96,6 +96,7 @@
 
 :function! VffSetupSelect ()
 :  if ! exists ("g:VffSetup")
+:    set nofoldenable
 :    nnoremap <buffer> <CR>     :call VffSelectCurrentBuffer()<CR>
 :    nnoremap <buffer> <C-C>    :call VffQuit()<CR>
 :    nnoremap <buffer> <ESC>    :call VffQuit()<CR>
