@@ -526,7 +526,7 @@ EOF
 :  quit
 :  if l:line != ""
 :    exec 'ruby $vff.relativepath("' . getcwd() . '", "/' . substitute(l:line, "([0-9]\\+):.*", "", "") . '")'
-:    silent exec "edit " . g:vffrubyret
+:    silent exec "edit " . fnameescape(g:vffrubyret)
 :    if g:vff_mode == 'grep'
 :      let l:offset = substitute(l:line, "^[^(]*(\\([0-9]\\+\\)):.*", "\\1", "")
 :      exec 'goto ' . l:offset
