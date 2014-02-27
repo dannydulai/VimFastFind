@@ -413,10 +413,10 @@ namespace VimFastFind {
             while (true) {
                 KeyValuePair<GrepMatcher, string> kvp;
                 while (__incomingfiles.Dequeue(out kvp)) {
+                    if (kvp.Key.dead)
+                        continue;
+                    string file = Path.Combine(kvp.Key._dir, kvp.Value);
                     try {
-                        if (kvp.Key.dead)
-                            continue;
-                        string file = Path.Combine(kvp.Key._dir, kvp.Value);
                         if (!File.Exists(file)) continue;
                         Map m = new Map();
                         m.Open(file);
@@ -431,9 +431,13 @@ namespace VimFastFind {
                         // skipping because this is just a blank file
 
                     } catch (IOException e) {
-                        Console.WriteLine("IO exception opening {0} for grepping: {1} ", kvp.Value, e);
-                        __incomingfiles.Enqueue(kvp);
-                        Thread.Sleep(100);
+                        try {
+                            var fi = new FileInfo(file);
+                            if (fi.Length != 0) {
+                                Console.WriteLine("IO exception opening {0} for grepping: {1} ", kvp.Value, e);
+                                __incomingfiles.Enqueue(kvp);
+                            }
+                        } catch { }
 
                     } catch (Exception e) {
                         Console.WriteLine("exception opening {0} for grepping: {1} ", kvp.Value, e);
