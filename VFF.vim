@@ -2,8 +2,14 @@
 "   Enter the key sequence in a single quoted string, exactly as you would use
 "   it in a map command.
 "
-:let vffFindActKeySeq = '<C-F>'
-:let vffGrepActKeySeq = '<C-E>'
+
+:if !exists("g:vffFindActKeySeq")
+:    let vffFindActKeySeq = '<C-F>'
+:endif
+
+:if !exists("g:vffGrepActKeySeq")
+:    let vffGrepActKeySeq = '<C-E>'
+:endif
 
 " The name of the browser. The default is "/---Select File---", but you can
 "   change the name at your will. A leading '/' is advised if you change
