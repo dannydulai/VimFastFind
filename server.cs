@@ -73,7 +73,11 @@ namespace VimFastFind {
 
         public void Go(string dir) {
 #if PLATFORM_WINDOWS
-            Utils.RunProcess("c:\\cygwin\\bin\\cygpath.exe", "-w " + dir, out _dir);
+            if (Directory.Exists("c:\\cygwin64")) {
+                Utils.RunProcess("c:\\cygwin64\\bin\\cygpath.exe", "-w " + dir, out _dir);
+            } else {
+                Utils.RunProcess("c:\\cygwin\\bin\\cygpath.exe", "-w " + dir, out _dir);
+            }
 #else
             _dir = dir;
 #endif

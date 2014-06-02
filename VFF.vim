@@ -359,7 +359,7 @@ EOS
                     connect2()
                 rescue
                     job = fork do
-                        if (RUBY_PLATFORM == 'i386-cygwin')
+                        if (RUBY_PLATFORM == 'i386-cygwin' or RUBY_PLATFORM == 'x86_64-cygwin')
                             exec ENV['HOME'] + "/.vim/plugin/VFF/VFFServer.exe"
                         else
                             exec "mono " + ENV['HOME'] + "/.vim/plugin/VFF/VFFServer.exe"
