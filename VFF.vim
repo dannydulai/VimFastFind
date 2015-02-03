@@ -2,8 +2,14 @@
 "   Enter the key sequence in a single quoted string, exactly as you would use
 "   it in a map command.
 "
-:let vffFindActKeySeq = '<C-F>'
-:let vffGrepActKeySeq = '<C-E>'
+
+:if !exists("g:vffFindActKeySeq")
+:    let vffFindActKeySeq = '<C-F>'
+:endif
+
+:if !exists("g:vffGrepActKeySeq")
+:    let vffGrepActKeySeq = '<C-E>'
+:endif
 
 " The name of the browser. The default is "/---Select File---", but you can
 "   change the name at your will. A leading '/' is advised if you change
@@ -353,7 +359,7 @@ EOS
                     connect2()
                 rescue
                     job = fork do
-                        if (RUBY_PLATFORM == 'i386-cygwin')
+                        if (RUBY_PLATFORM == 'i386-cygwin' or RUBY_PLATFORM == 'x86_64-cygwin')
                             exec ENV['HOME'] + "/.vim/plugin/VFF/VFFServer.exe"
                         else
                             exec "mono " + ENV['HOME'] + "/.vim/plugin/VFF/VFFServer.exe"
