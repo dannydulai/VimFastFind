@@ -333,7 +333,7 @@ namespace VimFastFind {
 
         public void Open(string file) {
             using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
-                mmf = MemoryMappedFile.CreateFromFile(fs, file, 0, MemoryMappedFileAccess.Read, null, HandleInheritability.None, true);
+                mmf = MemoryMappedFile.CreateFromFile(fs, Guid.NewGuid().ToString("n"), 0, MemoryMappedFileAccess.Read, null, HandleInheritability.None, true);
                 va = mmf.CreateViewAccessor(0L, 0L, MemoryMappedFileAccess.Read);
                 buf = va.SafeMemoryMappedViewHandle;
                 byte *p = null;
