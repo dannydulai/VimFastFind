@@ -201,8 +201,12 @@
 :    nnoremap <buffer> '        :call VffText('\''')<CR>
 :    nnoremap <buffer> <C-U>    :call VffClear()<CR>
 :    nnoremap <buffer> <BS>     :call VffBackspace()<CR>
+:    nnoremap <buffer> <M-J>    :call VffDown(1)<CR>
+:    nnoremap <buffer> <M-K>    :call VffUp(1)<CR>
 :    nnoremap <buffer> <A-J>    :call VffDown(1)<CR>
 :    nnoremap <buffer> <A-K>    :call VffUp(1)<CR>
+:    nnoremap <buffer> ∆        :call VffDown(1)<CR>
+:    nnoremap <buffer> ˚        :call VffUp(1)<CR>
 :    nnoremap <buffer> j      :call VffDown(1)<CR>
 :    nnoremap <buffer> k      :call VffUp(1)<CR>
 :    nnoremap <buffer> <C-DOWN> :call VffDown(1)<CR>
