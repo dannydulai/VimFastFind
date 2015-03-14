@@ -465,6 +465,7 @@ EOS
                 buffer.delete(7)
             end
             if domatching
+                connect()
                 begin
                     if ((mode == "find" && text != "") || (mode == "grep" && text.length >= 3))
                         if (mode == 'find')
