@@ -491,9 +491,9 @@ EOS
                         _refresh2(mode, false)
                     end
                 end
-                buffer.append(buffer.count, "")
             end
 
+            buffer.append(buffer.count, "")
             VIM::command("set nomodified")
         end
         def relativepath(relativeto,abspath)
@@ -558,10 +558,10 @@ EOF
 
 :function! VffUp(v)
 :  let l:line = line(".")
-:  if l:line - a:v > 6
+:  if l:line - a:v > 7
 :    silent! exec "normal! " . a:v . "k"
 :  else
-:    6
+:    7
 :  endif
 :  let g:vff_lastline = line(".")
 :  echo ""
