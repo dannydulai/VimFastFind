@@ -267,6 +267,8 @@
             buffer = VIM::Buffer.current
             if (@foundvff)
 
+                connect()
+
                 while (buffer.count > 1)
                 VIM::command(":  echo '" + buffer.count + "'")
                 buffer.delete(1)
@@ -450,7 +452,6 @@ EOS
             if (!@foundvff)
                 return false
             end
-            connect()
             buffer = VIM::Buffer.current
             buffer.delete(6)
             if (mode == 'find')
