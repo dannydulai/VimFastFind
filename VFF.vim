@@ -29,6 +29,21 @@
 "   the filename instead of the whole path. The default value is 0.
 :let highlightOnlyFilename = 0
 
+
+" Your can configure a delay in between when typing stops and results list.
+"   To enable the delay, add to your .vimrc:
+"      let g:vff_debounce = 1
+"   The default is 100 ms. To change it to 50 ms, add to your .vimrc:
+"      let g:vff_debounce_delay = 50
+"
+:if exists("g:vff_debounce")
+:  if exists("g:vff_debounce_delay")
+:    let g:vff_refreshdelay = g:vff_debounce_delay
+:  else
+:    let g:vff_refreshdelay = 100
+:  endif
+:endif
+
 "
 " END configuration.
 "
@@ -256,6 +271,8 @@
             buffer = VIM::Buffer.current
             if (@foundvff)
 
+                connect()
+
                 while (buffer.count > 1)
                 VIM::command(":  echo '" + buffer.count + "'")
                 buffer.delete(1)
@@ -287,7 +304,7 @@
                 VIM::command(":  call VffSetupSelect ()")
 
                 if (mode == 'grep')
-                    refresh(mode)
+                    _refresh(mode, false)
                 end
 
             else
@@ -397,13 +414,24 @@ EOS
             @sock.puts('go ' + @path.to_s())
         end
 
+        def text_append(mode, s)
+            if (mode == 'find')
+                @findtext += s
+            else
+                @greptext += s
+            end
+            # don't update results until refresh is called
+            _refresh(mode, false)
+        end
+
         def text_backspace(mode)
             if (mode == 'find')
                 @findtext.chop!()
             else
                 @greptext.chop!()
             end
-            refresh(mode)
+            # don't update results until refresh is called
+            _refresh(mode, false)
         end
 
         def text_clear(mode)
@@ -412,26 +440,22 @@ EOS
             else
                 @greptext = ''
             end
-            refresh(mode)
-        end
-
-        def text_append(mode, s)
-            if (mode == 'find')
-                @findtext += s
-            else
-                @greptext += s
-            end
-            refresh(mode)
+            # update results immediately
+            _refresh(mode, true)
         end
 
         def refresh(mode)
-            refresh2(mode, true)
+            _refresh(mode, true)
         end
-        def refresh2(mode, doretry)
+
+        def _refresh(mode, domatching)
+            _refresh2(mode, domatching, true)
+        end
+
+        def _refresh2(mode, domatching, doretry)
             if (!@foundvff)
                 return false
             end
-            connect()
             buffer = VIM::Buffer.current
             buffer.delete(6)
             if (mode == 'find')
@@ -444,33 +468,36 @@ EOS
             while (buffer.count >= 7)
                 buffer.delete(7)
             end
-            begin
-                if ((mode == "find" && text != "") || (mode == "grep" && text.length >= 3))
-                    if (mode == 'find')
-                        @sock.puts("find match " + text)
-                    else
-                        @sock.puts("grep match " + text)
-                    end
-                    while line = @sock.gets
-                        line = line.gsub(/\r\n?/, "\n").chop
-                        if (line == "")
-                            break
+            if domatching
+                connect()
+                begin
+                    if ((mode == "find" && text != "") || (mode == "grep" && text.length >= 3))
+                        if (mode == 'find')
+                            @sock.puts("find match " + text)
+                        else
+                            @sock.puts("grep match " + text)
                         end
-                        buffer.append(buffer.count, line)
+                        while line = @sock.gets
+                            line = line.gsub(/\r\n?/, "\n").chop
+                            if (line == "")
+                                break
+                            end
+                            buffer.append(buffer.count, line)
+                        end
+                        if (line == nil && doretry)
+                            connect()
+                            _refresh2(mode, false)
+                        end
                     end
-                    if (line == nil && doretry)
+                rescue
+                    if (doretry)
                         connect()
-                        refresh2(mode, false)
+                        _refresh2(mode, false)
                     end
-                end
-            rescue
-                if (doretry)
-                    connect()
-                    refresh2(mode, false)
                 end
             end
-            buffer.append(buffer.count, "")
 
+            buffer.append(buffer.count, "")
             VIM::command("set nomodified")
         end
         def relativepath(relativeto,abspath)
@@ -487,19 +514,46 @@ EOS
     $vff = VFF.new()
 EOF
 
+:if exists("g:vff_refreshdelay")
+:  exec "set updatetime=" . g:vff_refreshdelay
+:  " this autocommand fires when a char hasn't been typed in 'updatetime' ms, in normal mode
+:  autocmd CursorHold * :call VffRefresh()
+:endif
 
+:function! VffRefresh ()
+:  if exists("g:vff_needrefresh")
+:    if exists("g:vff_refreshdelay")
+:      exec "ruby $vff.refresh('" . g:vff_mode . "')"
+:    endif
+:    unlet g:vff_needrefresh
+:  endif
+:endfunction
+
+" updates the entry line immediately but don't refresh the results until the next CursorHold event
 :function! VffText (ch)
 :  exec "ruby $vff.text_append('" . g:vff_mode . "' , '" . a:ch . "')"
 :  let g:vff_lastline = line(".")
 :  echo ""
+:  if exists("g:vff_refreshdelay")
+:    let g:vff_needrefresh = 1
+:  else
+:    exec "ruby $vff.refresh('" . g:vff_mode . "')"
+:  endif
 :endfunction
 
+" updates the entry line immediately but don't refresh the results until the next CursorHold event
 :function! VffBackspace ()
 :  exec "ruby $vff.text_backspace('" . g:vff_mode . "')"
 :  let g:vff_lastline = line(".")
 :  echo ""
+:  if exists("g:vff_refreshdelay")
+:    let g:vff_needrefresh = 1
+:  else
+:    exec "ruby $vff.refresh('" . g:vff_mode . "')"
+:  endif
 :endfunction
 
+" updates the entry and results immediately
 :function! VffClear ()
 :  exec "ruby $vff.text_clear('" . g:vff_mode . "')"
 :  let g:vff_lastline = line(".")
@@ -508,10 +562,10 @@ EOF
 
 :function! VffUp(v)
 :  let l:line = line(".")
-:  if l:line - a:v > 6
+:  if l:line - a:v > 7
 :    silent! exec "normal! " . a:v . "k"
 :  else
-:    6
+:    7
 :  endif
 :  let g:vff_lastline = line(".")
 :  echo ""
