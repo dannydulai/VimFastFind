@@ -304,7 +304,7 @@
                 VIM::command(":  call VffSetupSelect ()")
 
                 if (mode == 'grep')
-                    _refresh(mode, false)
+                    _refresh(mode, true)
                 end
 
             else
