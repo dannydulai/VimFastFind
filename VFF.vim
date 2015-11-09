@@ -404,6 +404,7 @@ EOS
         def connect2()
             @sock = TCPSocket.open("127.0.0.1", 20398)
             f = File.new(@vffpath)
+            @sock.puts('init ' + @path.to_s())
             while (true)
                 s = f.gets
                 if (s == nil)
@@ -411,7 +412,7 @@ EOS
                 end
                 @sock.puts("config " + s)
             end
-            @sock.puts('go ' + @path.to_s())
+            @sock.puts('go')
         end
 
         def text_append(mode, s)

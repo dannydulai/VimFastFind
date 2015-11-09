@@ -17,41 +17,53 @@ namespace VimFastFind {
         protected string _dir;
         protected List<string> _paths = new List<string>();
 
+        public List<string> Paths { get { return _paths; } }
+
         List<MatchRule> _rules = new List<MatchRule>();
         DirectoryWatcher _fswatcher;
 
         class MatchRule {
             public bool Include;
-            public string[] Values;
+            public bool Starts;
+            public bool Ends;
+            public string Value;
+
+            public MatchRule(bool include, string v) {
+                this.Include = include;
+
+                if (v[0]          == '*') this.Ends   = true;
+                if (v[v.Length-1] == '*') this.Starts = true;
+
+                if (this.Starts && this.Ends)
+                    this.Value = v.Substring(1, v.Length-2);
+                else if (this.Starts)
+                    this.Value = v.Substring(0, v.Length-1);
+                else if (this.Ends)
+                    this.Value = v.Substring(1);
+                else
+                    this.Value = v;
+            }
+
             public bool Match(string e) {
-                int i = 0;
-                int j = 0;
-                while (j < Values.Length) {
-                    var v = Values[j++];
-                    if (v == "")
-                        continue;
-                    i = e.IndexOf(v, i);
-                    if (i == -1)
-                        return false;
-                    i += v.Length;
-                }
-                if (Values[Values.Length-1] == "")
-                    return true;
-                return i == e.Length;
+//                Console.WriteLine("{0} vs {1}", e, Value);
+                if (Starts && !Ends) return e.StartsWith(Value);
+                if (Ends && !Starts) return e.EndsWith(Value);
+                if (Ends && Starts) return e.IndexOf(Value) != -1;
+                return e == Value;
             }
         }
 
-        bool IsFileOk(string name) {
+        public bool IsFileOk(string name, bool onlyexclude=false) {
             foreach (var mr in _rules) {
-                if (mr.Include) {
+                if (!onlyexclude && mr.Include) {
                     if (mr.Match(name))
                         return true;
-                } else {
+                } else if (!mr.Include) {
                     if (mr.Match(name))
                         return false;
                 }
             }
-            return false;
+            return onlyexclude;
         }
 
         public string TrimPath(string fullpath) {
@@ -60,26 +72,31 @@ namespace VimFastFind {
         }
 
         public void Include(string e) {
-            _rules.Add(new MatchRule() { Include = true, Values = e.Split(new char[] { '*' }) });
+            var mr = new MatchRule(true, e);
+            _rules.Add(mr);
 //            Console.WriteLine("+ {0}", e);
         }
         public void Exclude(string e) {
-            _rules.Add(new MatchRule() { Include = false, Values = e.Split(new char[] { '*' }) });
+            var mr = new MatchRule(false, e);
+            mr.Include = false;
+            _rules.Add(mr);
 //            Console.WriteLine("- {0}", e);
         }
 
-        public Matcher() {
+        public string InitDir { get; private set; }
+        public Matcher(string initdir) {
+            this.InitDir = initdir;
         }
 
-        public void Go(string dir) {
+        public void Go(List<string> paths) {
 #if PLATFORM_WINDOWS
             if (Directory.Exists("c:\\cygwin64")) {
-                Utils.RunProcess("c:\\cygwin64\\bin\\cygpath.exe", "-w " + dir, out _dir);
+                Utils.RunProcess("c:\\cygwin64\\bin\\cygpath.exe", "-w " + this.InitDir, out _dir);
             } else {
-                Utils.RunProcess("c:\\cygwin\\bin\\cygpath.exe", "-w " + dir, out _dir);
+                Utils.RunProcess("c:\\cygwin\\bin\\cygpath.exe", "-w " + this.InitDir, out _dir);
             }
 #else
-            _dir = dir;
+            _dir = this.InitDir;
 #endif
             _dir = _dir.Trim();
             while (_dir.Length > 0 && _dir[_dir.Length-1] == Path.DirectorySeparatorChar)
@@ -99,25 +116,21 @@ namespace VimFastFind {
             _fswatcher.SubdirectoryChanged += ev_SubdirChanged;
 #endif
 
-            foreach (DirectoryEntry entry in
-                     FastDirectoryScanner.RecursiveScan(_dir,
-                                                        delegate(string skipdir) {
-                                                        string name = skipdir.ToLower();
-                                                        return
-                                                        name == "tmp" ||
-                                                        name == "bin" ||
-                                                        name == "obj" ||
-                                                        name == ".git" ||
-                                                        name == ".svn" ||
-                                                        name == "CVS" ||
-                                                        name == "temp";
-                                                        }))
-            {
-                if (entry.IsFile && IsFileOk(TrimPath(entry.FullPath)))
-                    _paths.Add(TrimPath(entry.FullPath));
+            if (paths != null) {
+                _paths = paths;
+            } else {
+                System.Diagnostics.Stopwatch sw = new System.Diagnostics.Stopwatch();
+                sw.Start();
+                foreach (DirectoryEntry entry in FastDirectoryScanner.RecursiveScan(_dir, skipdir => !IsFileOk(TrimPath(skipdir), true))) {
+                    if (entry.IsFile) {
+                        string tp = TrimPath(entry.FullPath);
+                        if (IsFileOk(tp)) _paths.Add(tp);
+                    }
+                }
+                sw.Stop();
+                Console.WriteLine("[{0}ms] {1} paths found on initial scan of {2}", sw.ElapsedMilliseconds, _paths.Count, this.InitDir);
             }
             OnPathsInited();
-//            Console.WriteLine("{0} paths found on initial scan of {1}", _paths.Count, dir);
         }
 
         void ev_SubdirChanged(DirectoryWatcher source, string fulldirpath)
@@ -253,9 +266,22 @@ namespace VimFastFind {
                 _fswatcher = null;
             }
         }
+
+        int _refcnt = 1;
+        public void Ref() {
+            Interlocked.Increment(ref _refcnt);
+        }
+        public bool Free() {
+            if (Interlocked.Decrement(ref _refcnt) == 0) {
+                Dispose();
+                return true;
+            }
+            return false;
+        }
     }
 
     class PathMatcher : Matcher {
+        public PathMatcher(string dir) : base(dir) { }
         protected override void OnPathsInited() {
             _paths.Sort();
         }
@@ -293,104 +319,6 @@ namespace VimFastFind {
         }
     }
 
-    unsafe class Map {
-        // uses memmem on windows, which is why needle_len is needed. uses
-        // strnstr on mac, though, so needle must be null-terminated.
-        static unsafe sbyte* strnstr(sbyte* haystack, int haystack_len, sbyte* needle, int needle_len)
-        {
-#if PLATFORM_WINDOWS
-            return memmem(haystack, (uint)haystack_len, needle, (uint)needle_len);
-#elif PLATFORM_LINUX
-            return memmem(haystack, new UIntPtr((uint)haystack_len), needle, new UIntPtr((uint)needle_len));
-#elif PLATFORM_MACOSX
-            return strnstr(haystack, needle, new UIntPtr((uint)haystack_len));
-#else
-#       error Unsupported Platform
-#endif
-        }
-
-#if PLATFORM_WINDOWS
-        // use uint for size_t here since this lib is always built 32-bit
-        [DllImport("storagestringutils", CharSet=CharSet.Ansi, CallingConvention=CallingConvention.Cdecl)]
-        static extern sbyte * memmem(sbyte* haystack, uint haystack_len, sbyte* needle, uint needle_len);
-#elif PLATFORM_LINUX
-        // use UIntPtr for size_t here since we don't know how wide size_t is on this platform's libc
-        [DllImport("libc", CharSet=CharSet.Ansi, CallingConvention=CallingConvention.Cdecl)]
-        static extern sbyte * memmem(sbyte* haystack, UIntPtr haystack_len, sbyte* needle, UIntPtr needle_len);
-#elif PLATFORM_MACOSX
-        // use UIntPtr for size_t here since we don't know how wide size_t is on this platform's libc
-        [DllImport("libc", CharSet=CharSet.Ansi)]
-        static unsafe extern sbyte* strnstr(sbyte* s1, sbyte* s2, UIntPtr n);
-#else
-#       error Unsupported Platform
-#endif
-
-        MemoryMappedFile mmf;
-        MemoryMappedViewAccessor va;
-        Microsoft.Win32.SafeHandles.SafeMemoryMappedViewHandle buf;
-        int filelen;
-        sbyte* ptr;
-
-        public void Open(string file) {
-            using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.ReadWrite)) {
-                mmf = MemoryMappedFile.CreateFromFile(fs, Guid.NewGuid().ToString("n"), 0, MemoryMappedFileAccess.Read, null, HandleInheritability.None, true);
-                va = mmf.CreateViewAccessor(0L, 0L, MemoryMappedFileAccess.Read);
-                buf = va.SafeMemoryMappedViewHandle;
-                byte *p = null;
-                buf.AcquirePointer(ref p);
-                ptr = (sbyte*)p;
-                filelen = (int)va.Capacity;
-            }
-        }
-
-        public void Close() {
-            try { buf.ReleasePointer(); } catch { }
-            try { buf.Dispose(); } catch { }
-            try { va.Dispose(); } catch { }
-            try { mmf.Dispose(); } catch { }
-        }
-
-        public static void FreeString(sbyte *s) {
-            Marshal.FreeHGlobal(new IntPtr(s));
-        }
-
-        public int IndexOf(int idx, string s, ref sbyte* str) {
-            if (idx >= filelen)
-                return -1;
-
-            if (str == null)
-                str = (sbyte*)(Marshal.StringToHGlobalAnsi(s).ToPointer());
-
-            sbyte* ret = strnstr(ptr + idx, (int)(filelen-idx), str, s.Length);
-            if (ret == null)
-                return -1;
-            return (int)(ret - ptr);
-        }
-
-        public string GetLineAt(int idx, out int endidx) {
-            if (idx >= filelen) {
-                endidx = idx;
-                return null;
-            }
-
-            unsafe {
-                sbyte *startoffile = ptr;
-                sbyte *endoffile = startoffile + filelen;
-
-                sbyte *e = startoffile + idx;
-                while (e < endoffile && *e != (sbyte)'\n') e++;
-
-                sbyte *s = startoffile + idx;
-                while (s >= startoffile && *s != (sbyte)'\n') s--;
-                s++;
-//                if (s != startoffile) s++;
-
-                endidx = (int)(e - startoffile);
-                return new string(s, 0, (int)(e-s), Encoding.UTF8);
-            }
-        }
-    }
-
     class GrepMatcher : Matcher {
         static long __id = 0;
         static Dictionary<long, GrepMatcher> __all = new Dictionary<long, GrepMatcher>();
@@ -400,13 +328,13 @@ namespace VimFastFind {
         bool dead;
 
         long _id;
-        Dictionary<string, Map> _contents = new Dictionary<string, Map>();
+        Dictionary<string, string> _contents = new Dictionary<string, string>();
 
         static GrepMatcher() {
             (new Thread(ev_read) { IsBackground = true }).Start();
         }
 
-        public GrepMatcher() {
+        public GrepMatcher(string dir) : base(dir) {
             _id = __id++;
             lock(__all) {
                 __all[_id] = this;
@@ -422,13 +350,11 @@ namespace VimFastFind {
                     string file = Path.Combine(kvp.Key._dir, kvp.Value);
                     try {
                         if (!File.Exists(file)) continue;
-                        Map m = new Map();
-                        m.Open(file);
-                        lock (kvp.Key._contents) {
-                            Map o;
-                            if (kvp.Key._contents.TryGetValue(kvp.Value, out o))
-                                o.Close();
-                            kvp.Key._contents[kvp.Value] = m;
+                        using (StreamReader r = new StreamReader(file)) {
+                            string v = r.ReadToEnd();
+                            lock (kvp.Key._contents) {
+                                kvp.Key._contents[kvp.Value] = v;
+                            }
                         }
 
                     } catch (ArgumentException) {
@@ -466,9 +392,7 @@ namespace VimFastFind {
         protected override void OnPathRemoved(string path) {
 //            Console.WriteLine("removing file {0}", Path.Combine(this._dir, path));
             lock (_contents) {
-                Map m = _contents[path];
                 _contents.Remove(path);
-                m.Close();
             }
         }
         protected override void OnPathChanged(string path) {
@@ -486,7 +410,7 @@ namespace VimFastFind {
         }
         protected override bool DoMatch(string path, string needle, out int score, ref object obj, List<string> outs) {
 //            Console.WriteLine("matching {0} against {1}", path, needle);
-            Map contents;
+            string contents;
             lock (_contents) {
                 if (!_contents.TryGetValue(path, out contents)) {
                     //                Console.WriteLine("{0} not found", path);
@@ -498,23 +422,24 @@ namespace VimFastFind {
             score = 0;
             bool ret = false;
 
-            unsafe {
-                sbyte* buf = null;
-                int idx = 0;
-                while (true) {
-                    idx = contents.IndexOf(idx, needle, ref buf);
-                    if (idx == -1) break;
+            int idx = 0;
+            while (true) {
+                idx = contents.IndexOf(needle, idx, StringComparison.Ordinal);
+                if (idx == -1) break;
 
-                    int eidx;
-                    string line = contents.GetLineAt(idx, out eidx);
+                int oidx = idx;
+                int eidx = idx;
+                while (eidx < contents.Length && contents[eidx] != '\n') eidx++;
+                if (eidx != contents.Length) eidx++;
 
-                    outs.Add(path.Replace("\\", "/") + "(" + (idx+1).ToString() + "):" + line);
-                    score = 100;
-                    idx = eidx+1;
-                    ret = true;
-                }
-                if (buf != null)
-                    Map.FreeString(buf);
+                while (idx > 0 && contents[idx] != '\n') idx--;
+                if (contents[idx] == '\n') idx++;
+
+                outs.Add(path.Replace("\\", "/") + "(" + (oidx+1) + "):" + contents.Substring(idx, eidx-idx-1));
+                score = 100;
+                idx = eidx;
+                ret = true;
+                if (idx+1 >= contents.Length) break;
             }
             return ret;
         }
@@ -524,24 +449,22 @@ namespace VimFastFind {
             lock (__all) {
                 __all.Remove(_id);
             }
-            lock (_contents) {
-                foreach (var kvp in _contents)
-                    kvp.Value.Close();
-            }
             base.Dispose();
             dead = true;
-        }
-
-        ~GrepMatcher() {
-//            Console.WriteLine("FINALIZED {0}", _id);
         }
     }
 
     public class Client {
-        PathMatcher _pathmatcher = new PathMatcher();
-        GrepMatcher _grepmatcher = new GrepMatcher();
+        static Dictionary<string, PathMatcher> __pathmatchercache = new Dictionary<string, PathMatcher>();
+        static Dictionary<string, GrepMatcher> __grepmatchercache = new Dictionary<string, GrepMatcher>();
+
+        PathMatcher _pathmatcher;
+        GrepMatcher _grepmatcher;
 
         TcpClient _client;
+
+        bool _ownspath;
+        bool _ownsgrep;
 
         public Client(TcpClient client) {
             _client = client;
@@ -561,42 +484,46 @@ namespace VimFastFind {
 //                            Console.WriteLine("got cmd {0}", line);
 
                                 line = Regex.Replace(line, @"^\s*#.*", "");
-                                line = Regex.Replace(line, @"^\s*$", "");
-                                if (line == "") continue;
+                                if (String.IsNullOrWhiteSpace(line)) continue;
                                 string[] s = line.Split(new char[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
 
 
-                                if (s[0] == "go") {
-                                    // we could cache this by path
-//                                Console.WriteLine("go! {0}", s);
+                                if (s[0] == "init") {
                                     s = line.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
-                                    _pathmatcher.Go(s[1]);
-                                    _grepmatcher.Go(s[1]);
+                                    lock (__pathmatchercache) {
+                                        if (!__pathmatchercache.TryGetValue(s[1], out _pathmatcher)) {
+                                            _pathmatcher = new PathMatcher(s[1]); 
+                                            __pathmatchercache[s[1]] = _pathmatcher;
+                                            _ownspath = true;
+                                        } else {
+                                            _pathmatcher.Ref();
+                                        }
+                                    }
+
+                                    lock (__grepmatchercache) {
+                                        if (!__grepmatchercache.TryGetValue(s[1], out _grepmatcher)) {
+                                            _grepmatcher = new GrepMatcher(s[1]); 
+                                            __grepmatchercache[s[1]] = _grepmatcher;
+                                            _ownsgrep = true;
+                                        } else {
+                                            _grepmatcher.Ref();
+                                        }
+                                    }
+
+                                } else if (s[0] == "go") {
+//                                Console.WriteLine("go! {0}", s);
+                                    if (_ownspath) _pathmatcher.Go(null);
+                                    if (_ownsgrep) _grepmatcher.Go(_pathmatcher.Paths);
+
 
                                 } else if (s[0] == "config") {
                                     if (s[1] == "include") {
-                                        _pathmatcher.Include(s[2]);
-                                        _grepmatcher.Include(s[2]);
+                                        if (_ownspath) _pathmatcher.Include(s[2]);
+                                        if (_ownsgrep) _grepmatcher.Include(s[2]);
 
                                     } else if (s[1] == "exclude") {
-                                        _pathmatcher.Exclude(s[2]);
-                                        _grepmatcher.Exclude(s[2]);
-
-                                    } else if (s[1] == "find" && s[2] == "include") {
-                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
-                                        _pathmatcher.Include(s[3]);
-
-                                    } else if (s[1] == "find" && s[2] == "exclude") {
-                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
-                                        _pathmatcher.Exclude(s[3]);
-
-                                    } else if (s[1] == "grep" && s[2] == "include") {
-                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
-                                        _grepmatcher.Include(s[3]);
-
-                                    } else if (s[1] == "grep" && s[2] == "exclude") {
-                                        s = line.Split(new char[] { ' ', '\t' }, 4, StringSplitOptions.RemoveEmptyEntries);
-                                        _grepmatcher.Exclude(s[3]);
+                                        if (_ownspath) _pathmatcher.Exclude(s[2]);
+                                        if (_ownsgrep) _grepmatcher.Exclude(s[2]);
                                     }
 
                                 } else if (s[0] == "grep" && s[1] == "match") {
@@ -643,13 +570,17 @@ namespace VimFastFind {
                     try { _client.Close(); } catch { }
                     _client = null;
                 }
-                if (_pathmatcher != null) {
-                    _pathmatcher.Dispose();
-                    _pathmatcher = null;
+                lock (__pathmatchercache) {
+                    if (_pathmatcher != null) {
+                        if (_pathmatcher.Free()) __pathmatchercache.Remove(_pathmatcher.InitDir);
+                        _pathmatcher = null;
+                    }
                 }
-                if (_grepmatcher != null) {
-                    _grepmatcher.Dispose();
-                    _grepmatcher = null;
+                lock (__grepmatchercache) {
+                    if (_grepmatcher != null) {
+                        if (_grepmatcher.Free()) __grepmatchercache.Remove(_grepmatcher.InitDir);
+                        _grepmatcher = null;
+                    }
                 }
             }
         }

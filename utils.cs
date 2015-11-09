@@ -100,7 +100,7 @@ namespace VimFastFind
 
                 if (recurse &&
                     entry.Value.IsDirectory &&
-                    cb_shouldskipdir != null && cb_shouldskipdir(entry.Value.Name))
+                    cb_shouldskipdir != null && cb_shouldskipdir(entry.Value.FullPath))
                     continue;
 
                 ret.Add(entry.Value);
@@ -191,7 +191,7 @@ namespace VimFastFind
             foreach (var entry in info.EnumerateFileSystemInfos()) {
                 var attrs = entry.Attributes & ~(FileAttributes.Hidden | FileAttributes.ReadOnly);
                 if ((attrs & FileAttributes.Directory) != 0) {
-                    if (recurse && cb_shouldskipdir(entry.Name)) continue;
+                    if (recurse && cb_shouldskipdir(entry.FullName)) continue;
                     ret.Add(new DirectoryEntry(path, entry.FullName, 0, false));
                     if (recurse)
                         ret.AddRange(Scan(entry.FullName, true, cb_shouldskipdir));
@@ -240,17 +240,16 @@ namespace VimFastFind
                                 continue;
                             }
                             bool skip = false;
+                            string fullpath = Marshal.PtrToStringAnsi(ent->fts_path);
                             if (!isfile && cb_shouldskipdir != null)
                             {
-                                string name = Marshal.PtrToStringAnsi(new IntPtr((byte*)ent->fts_name));
-                                if (cb_shouldskipdir != null && cb_shouldskipdir(name)) {
+                                if (cb_shouldskipdir != null && cb_shouldskipdir(fullpath)) {
                                     fts_set(handle, ent, FTS_SKIP);
                                     skip = true;
                                 }
                             }
                             if (!skip)
                             {
-                                string fullpath = Marshal.PtrToStringAnsi(ent->fts_path);
                                 if (first) {
                                     first = false;
                                 } else {
