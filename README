@@ -22,6 +22,10 @@ vim-plug, then install the node-host and the neovim-vff plugin.
 :BundleInstall dannydulai/neovim-vff
 :UpdateRemotePlugins
 
+You will need to navigate to the node-host directory
+(~/.vim/bundle/node-host) and run "npm install"
+
+
 -------------------------------------------------------------------------------
 
 In the root of the filesystem tree you want to scan, create a .vff file.
