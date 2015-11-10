@@ -1,25 +1,44 @@
-You will need Vim compiled with Ruby support, then build:
+To make server:
 
 % genmake make
 % make
+
+-------------------------------------------------------------------------------
+
+To install for Vim:
+
+You will need Vim compiled with Ruby support.
+
 % ./install.sh
+
+-------------------------------------------------------------------------------
+
+This all works way better in Neovim.
+
+In Neovim, it requires you to have a plugin manager like Vundle or Pathogen or
+vim-plug, then install the node-host and the neovim-vff plugin.
+
+:BundleInstall neovim/node-host
+:BundleInstall dannydulai/neovim-vff
+:UpdateRemotePlugins
+
+-------------------------------------------------------------------------------
 
 In the root of the filesystem tree you want to scan, create a .vff file.
 
 After that, you can include or exclude files using the following statements:
 
-[file|grep] include <pattern>
-[file|grep] exclude <pattern>
+include <pattern>
+exclude <pattern>
 
-You can include/exclude for just find mode or just grep mode by prefixing the
-include/exclude statement with "file" or "grep". Not specifying "file" or
-"grep" will cause the include/exclude to match for both.
+Patterns are matched in order and short circuit on match. Directories
+be matched against the exclude list and not scanned if they match. Unmatched
+files will be excluded, unmatched directories will be scanned. 
 
-Patterns are matched in order and short circuit on match. Unmatched files will
-be excluded.
+You can include *'s at the start and/or the end of the pattern, not in the
+middle.
 
 "#" is the start of a comment on any line. Blank lines are ignored.
-
 
 Example:
 
@@ -38,9 +57,6 @@ include *.awk
 include *.sed
 include *.sh
 include *.bash
-file include *.txt
-file include *.xml
-text include *.foo
 
 When you start vim, it will connect to VFFServer, and start it up if it can't.
 Then you can hit ^F (find) or ^E (grep) to bring up the dialog. Start typing to
