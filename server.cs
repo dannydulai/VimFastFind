@@ -320,14 +320,11 @@ namespace VimFastFind {
     }
 
     class GrepMatcher : Matcher {
-        static long __id = 0;
-        static Dictionary<long, GrepMatcher> __all = new Dictionary<long, GrepMatcher>();
         static LockFreeQueue<KeyValuePair<GrepMatcher, string>> __incomingfiles = new LockFreeQueue<KeyValuePair<GrepMatcher, string>>();
-        static AutoResetEvent __queuelock = new AutoResetEvent(false);
+        static AutoResetEvent __queuetrigger = new AutoResetEvent(false);
 
         bool dead;
 
-        long _id;
         Dictionary<string, string> _contents = new Dictionary<string, string>();
 
         static GrepMatcher() {
@@ -335,10 +332,6 @@ namespace VimFastFind {
         }
 
         public GrepMatcher(string dir) : base(dir) {
-            _id = __id++;
-            lock(__all) {
-                __all[_id] = this;
-            }
         }
 
         static void ev_read() {
@@ -373,7 +366,7 @@ namespace VimFastFind {
                         Console.WriteLine("exception opening {0} for grepping: {1} ", kvp.Value, e);
                     }
                 }
-                __queuelock.WaitOne();
+                __queuetrigger.WaitOne();
             }
         }
 
@@ -382,12 +375,12 @@ namespace VimFastFind {
 //                Console.WriteLine("adding to incoming file {0}", Path.Combine(this._dir, f));
                 __incomingfiles.Enqueue(new KeyValuePair<GrepMatcher, string>(this, f));
             }
-            __queuelock.Set();
+            __queuetrigger.Set();
         }
         protected override void OnPathAdded(string path) {
 //                Console.WriteLine("adding to incoming file {0}", Path.Combine(this._dir, path));
             __incomingfiles.Enqueue(new KeyValuePair<GrepMatcher, string>(this, path));
-            __queuelock.Set();
+            __queuetrigger.Set();
         }
         protected override void OnPathRemoved(string path) {
 //            Console.WriteLine("removing file {0}", Path.Combine(this._dir, path));
@@ -398,7 +391,7 @@ namespace VimFastFind {
         protected override void OnPathChanged(string path) {
 //            Console.WriteLine("changed file {0}", Path.Combine(this._dir, path));
             __incomingfiles.Enqueue(new KeyValuePair<GrepMatcher, string>(this, path));
-            __queuelock.Set();
+            __queuetrigger.Set();
         }
         protected override void OnPathRenamed(string p1, string p2) {
             lock (_contents) {
@@ -445,10 +438,7 @@ namespace VimFastFind {
         }
 
         public override void Dispose() {
-//            Console.WriteLine("disposing grep {0}", _id);
-            lock (__all) {
-                __all.Remove(_id);
-            }
+//            Console.WriteLine("disposing grep");
             base.Dispose();
             dead = true;
         }
@@ -481,7 +471,7 @@ namespace VimFastFind {
                             while (true) {
                                 string line = rdr.ReadLine();
                                 if (line == null) return;
-//                            Console.WriteLine("got cmd {0}", line);
+//                                Console.WriteLine("got cmd {0}", line);
 
                                 line = Regex.Replace(line, @"^\s*#.*", "");
                                 if (String.IsNullOrWhiteSpace(line)) continue;
@@ -492,8 +482,7 @@ namespace VimFastFind {
                                     s = line.Split(new char[] { ' ', '\t' }, 2, StringSplitOptions.RemoveEmptyEntries);
                                     lock (__pathmatchercache) {
                                         if (!__pathmatchercache.TryGetValue(s[1], out _pathmatcher)) {
-                                            _pathmatcher = new PathMatcher(s[1]); 
-                                            __pathmatchercache[s[1]] = _pathmatcher;
+                                            __pathmatchercache[s[1]] = _pathmatcher = new PathMatcher(s[1]);
                                             _ownspath = true;
                                         } else {
                                             _pathmatcher.Ref();
@@ -502,8 +491,7 @@ namespace VimFastFind {
 
                                     lock (__grepmatchercache) {
                                         if (!__grepmatchercache.TryGetValue(s[1], out _grepmatcher)) {
-                                            _grepmatcher = new GrepMatcher(s[1]); 
-                                            __grepmatchercache[s[1]] = _grepmatcher;
+                                            __grepmatchercache[s[1]] = _grepmatcher = new GrepMatcher(s[1]);
                                             _ownsgrep = true;
                                         } else {
                                             _grepmatcher.Ref();
@@ -550,7 +538,7 @@ namespace VimFastFind {
                                         i++;
                                     }
                                     wtr.Write(sb.ToString());
-                                    wtr.Write("\n");
+                                    wtr.Write("\n"); // empty line at the end
 
                                 } else if (s[0] == "nop") {
                                     wtr.Write("nop\n");
@@ -558,6 +546,7 @@ namespace VimFastFind {
                                     return;
                                 } else {
                                 }
+//                                Console.WriteLine("done cmd {0}", line);
                                 wtr.Flush();
                             }
                         }
