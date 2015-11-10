@@ -1,4 +1,4 @@
-:if !has('nvim')
+:if has('nvim')
 " The key sequence that should activate the buffer browser. The default is ^F.
 "   Enter the key sequence in a single quoted string, exactly as you would use
 "   it in a map command.
@@ -65,6 +65,9 @@
 :call VffSetupActivationKey ()
 
 :let g:vff_lastline = -1
+:let g:vff_lasttext = ""
+:let g:vff_path     = ""
+:let g:vff_status   = ""
 
 :function! VffListBufs (mode)
 :  let g:vff_mode = a:mode
@@ -73,9 +76,9 @@
 :  let l:saveReport = &report
 :  let &timeoutlen=0
 :  let &report=10000
-:  split
-:  setlocal noswapfile
-:  silent! exec ":e " . g:vffWindowName
+:  silent! exec ":new " . g:vffWindowName
+:  setlocal buftype=nofile
+:  setlocal bufhidden=hide
 :  setlocal noswapfile
 :  let g:vff_vffwin = winnr()
 :  if g:vff_mode == 'find'
@@ -87,13 +90,36 @@
 :  hi CursorLine   cterm=NONE ctermbg=darkblue ctermfg=white
 :  setlocal cc=
 :  let &report = l:saveReport
-:  exec 'ruby $vff.enter("' . g:vff_mode . '")'
-:  if g:vff_mode == 'grep'
-:     if g:vff_lastline != -1
-:        exec g:vff_lastline
-:     endif
+:  0,$d
+:  let l:ret = VFFEnterSync(g:vff_mode)
+:  if !empty(l:ret)
+:    let g:vff_path = (l:ret)[0]
+:    aug ListFiles
+:      exec "au WinEnter " . g:vffWindowName . " call VffSetupSelect ()"
+:      exec "au WinLeave " . g:vffWindowName . " call VffUnsetupSelect ()"
+:      exec "au BufLeave " . g:vffWindowName . " call VffClearSetup ()"
+:    aug END
+:    setlocal cursorline
+:    call VffSetupSelect ()
+:    call append(0, 'VimFastFind: Ctrl-F for file mode, Ctrl-E for grep mode')
+:    call append(1, '<ESC> to quit, <UP>/<DOWN> or Alt-J/Alt-K to move, <ENTER> to select')
+:    call append(2, '----------------------------------------------------------------------')
+:    call append(3, 'Root: ' . g:vff_path . " [ " . g:vff_status . " ]")
+:    call append(4, '')
+:    if g:vff_mode == 'grep'
+:        call append(5, 'Find Content: ' . (l:ret)[1])
+:    else
+:        call append(5, 'Find File: ' . (l:ret)[1])
+:    endif
+:    call append(6, '')
+:  else
+:    call VffSetupBadSelect ()
+:    call append(0, "ERROR: No .vff file found!")
+:    call append(1, "")
+:    call append(2, "Hit ESCAPE or ENTER to close this window")
 :  endif
 :  set nomodified
+:  call VFFfixline()
 :endfunction
 
 :function! VffClearSetup ()
@@ -110,6 +136,7 @@
 :    nnoremap <buffer> <CR>     :call VffQuit()<CR>
 :    nnoremap <buffer> <C-C>    :call VffQuit()<CR>
 :    nnoremap <buffer> <ESC>    :call VffQuit()<CR>
+:    nnoremap <buffer> q        :call VffQuit()<CR>
 :    call VffSetupDeActivationKey ()
 :    let g:VffSetup = 1
 :  endif
@@ -241,280 +268,6 @@
 :  endif
 :endfunction
 
-:ruby << EOF
-    require 'socket'
-    require 'pathname'
-    class VFF
-        def initialize()
-            @foundvff = false
-            @findtext = ""
-            @greptext = ""
-
-            pn = Pathname.pwd
-            while (!pn.root?)
-                tpn = pn + ".vff"
-                if (tpn.exist?)
-                    @foundvff = true
-                    @vffpath = pn + ".vff"
-                    @path = pn
-                    return true
-                end
-                pn = pn + ".."
-                pn = Pathname.new(pn.cleanpath())
-            end
-        end
-        def enter(mode)
-            if (mode == 'find')
-                @findtext = ''
-            end
-
-            buffer = VIM::Buffer.current
-            if (@foundvff)
-
-                connect()
-
-                while (buffer.count > 1)
-                VIM::command(":  echo '" + buffer.count + "'")
-                buffer.delete(1)
-                end
-
-                buffer.append(0, "VimFastFind: Ctrl-F for file mode, Ctrl-E for grep mode");
-                buffer.append(1, "<ESC> to quit, <UP>/<DOWN> or Alt-J/Alt-K to move, <ENTER> to select");
-                buffer.append(2, "----------------------------------------------------------------------");
-
-                buffer.append(3, "Root: " + @path.to_s())
-                buffer.append(4, "")
-                if (mode == 'find')
-                    buffer.append(5, "Find File: ")
-                else
-                    buffer.append(5, "Find Content: ")
-                end
-                buffer.append(6, "")
-                buffer.append(7, "")
-                while (buffer.count >= 8)
-                    buffer.delete(8)
-                end
-                VIM::command(":  aug ListFiles")
-                VIM::command(":    exec \"au WinEnter \" . g:vffWindowName . \" call VffSetupSelect ()\"")
-                VIM::command(":    exec \"au WinLeave \" . g:vffWindowName . \" call VffUnsetupSelect ()\"")
-                VIM::command(":    exec \"au BufLeave \" . g:vffWindowName . \" call VffClearSetup ()\"")
-                VIM::command(":  aug END")
-                VIM::command(":  setlocal cursorline")
-                VIM::command(":  normal G")
-                VIM::command(":  call VffSetupSelect ()")
-
-                if (mode == 'grep')
-                    _refresh(mode, true)
-                end
-
-            else
-                VIM::command(":  call VffSetupBadSelect ()")
-                hook=<<EOS
-ERROR: No .vff file found!
-
-Hit ESCAPE or ENTER to close this window
-
-In the root of the filesystem tree you want to scan, create a .vff file.
-
-After that, you can include or exclude files using the following statements:
-
-[file|grep] include <pattern>
-[file|grep] exclude <pattern>
-
-You can include/exclude for just find mode or just grep mode by prefixing the
-include/exclude statement with "file" or "grep". Not specifying "file" or
-"grep" will cause the include/exclude to match for both.
-
-Patterns are matched in order and short circuit on match. Unmatched files will
-be excluded.
-
-"#" is the start of a comment on any line. Blank lines are ignored.
-
-
-Example:
-
-% cat .vff
-include *.c
-include *.cs
-include *.cpp
-include *.h
-include *.java
-include *.lua
-include *.pl
-include *.py
-include *.rb
-include *.tcl
-include *.awk
-include *.sed
-include *.sh
-include *.bash
-
-
-
-EOS
-                i = 0
-                for l in hook.split("\n")
-                    buffer.append(i, l)
-                    i += 1
-                end
-            end
-        end
-
-        def connect()
-            if (!@foundvff)
-                return false
-            end
-
-            begin
-                if (@sock)
-                    @sock.puts('nop')
-                    @sock.gets
-                end
-            rescue
-                @sock = nil
-            end
-
-            if (!@sock)
-                i = 0
-                begin
-                    connect2()
-                rescue
-                    job = fork do
-                        if (RUBY_PLATFORM == 'i386-cygwin' or RUBY_PLATFORM == 'x86_64-cygwin')
-                            exec ENV['HOME'] + "/.vim/plugin/VFF/VFFServer.exe"
-                        else
-                            exec "mono " + ENV['HOME'] + "/.vim/plugin/VFF/VFFServer.exe"
-                        end
-                    end
-                    Process.detach(job)
-
-                    i = 0
-                    while (i < 50)
-                        sleep(0.0100)
-                        begin
-                            connect2()
-                            i = 99
-                        rescue
-                        end
-                    end
-                end
-            end
-        end
-
-        def connect2()
-            @sock = TCPSocket.open("127.0.0.1", 20398)
-            f = File.new(@vffpath)
-            @sock.puts('init ' + @path.to_s())
-            while (true)
-                s = f.gets
-                if (s == nil)
-                    break
-                end
-                @sock.puts("config " + s)
-            end
-            @sock.puts('go')
-        end
-
-        def text_append(mode, s)
-            if (mode == 'find')
-                @findtext += s
-            else
-                @greptext += s
-            end
-            # don't update results until refresh is called
-            _refresh(mode, false)
-        end
-
-        def text_backspace(mode)
-            if (mode == 'find')
-                @findtext.chop!()
-            else
-                @greptext.chop!()
-            end
-            # don't update results until refresh is called
-            _refresh(mode, false)
-        end
-
-        def text_clear(mode)
-            if (mode == 'find')
-                @findtext = ''
-            else
-                @greptext = ''
-            end
-            # update results immediately
-            _refresh(mode, true)
-        end
-
-        def refresh(mode)
-            _refresh(mode, true)
-        end
-
-        def _refresh(mode, domatching)
-            _refresh2(mode, domatching, true)
-        end
-
-        def _refresh2(mode, domatching, doretry)
-            if (!@foundvff)
-                return false
-            end
-            buffer = VIM::Buffer.current
-            buffer.delete(6)
-            if (mode == 'find')
-                buffer.append(5, "Find File: " + @findtext)
-                text = @findtext
-            else
-                buffer.append(5, "Find Content: " + @greptext)
-                text = @greptext
-            end
-            while (buffer.count >= 7)
-                buffer.delete(7)
-            end
-            if domatching
-                connect()
-                begin
-                    if ((mode == "find" && text != "") || (mode == "grep" && text.length >= 3))
-                        if (mode == 'find')
-                            @sock.puts("find match " + text)
-                        else
-                            @sock.puts("grep match " + text)
-                        end
-                        while line = @sock.gets
-                            line = line.gsub(/\r\n?/, "\n").chop
-                            if (line == "")
-                                break
-                            end
-                            buffer.append(buffer.count, line)
-                        end
-                        if (line == nil && doretry)
-                            connect()
-                            _refresh2(mode, false)
-                        end
-                    end
-                rescue
-                    if (doretry)
-                        connect()
-                        _refresh2(mode, false)
-                    end
-                end
-            end
-
-            buffer.append(buffer.count, "")
-            VIM::command("set nomodified")
-        end
-        def relativepath(relativeto,abspath)
-            abspath = @path.to_s() + abspath
-            path = abspath.split("/")
-            rel = relativeto.split("/")
-            while (path.length > 0) && (path.first == rel.first)
-                path.shift
-                rel.shift
-            end
-            VIM::command("let g:vffrubyret = \"" + (('..' + "/") * (rel.length) + path.join("/")) + "\"")
-        end
-    end
-    $vff = VFF.new()
-EOF
-
 :if exists("g:vff_refreshdelay")
 :  exec "set updatetime=" . g:vff_refreshdelay
 :  " this autocommand fires when a char hasn't been typed in 'updatetime' ms, in normal mode
@@ -524,7 +277,7 @@ EOF
 :function! VffRefresh ()
 :  if exists("g:vff_needrefresh")
 :    if exists("g:vff_refreshdelay")
-:      exec "ruby $vff.refresh('" . g:vff_mode . "')"
+:      call VFFRefresh(g:vff_mode)
 :    endif
 :    unlet g:vff_needrefresh
 :  endif
@@ -532,32 +285,80 @@ EOF
 
 " updates the entry line immediately but don't refresh the results until the next CursorHold event
 :function! VffText (ch)
-:  exec "ruby $vff.text_append('" . g:vff_mode . "' , '" . a:ch . "')"
+:  let g:vff_lasttext = VFFTextAppendSync(g:vff_mode, a:ch)
 :  let g:vff_lastline = line(".")
+:  if g:vff_mode == 'grep'
+:      call setline(6, 'Find Content: ' . g:vff_lasttext)
+:  else
+:      call setline(6, 'Find File: ' . g:vff_lasttext)
+:  endif
 :  echo ""
 :  if exists("g:vff_refreshdelay")
 :    let g:vff_needrefresh = 1
 :  else
-:    exec "ruby $vff.refresh('" . g:vff_mode . "')"
+:    call VFFRefresh(g:vff_mode)
 :  endif
+:endfunction
+
+:function! VFFLines (lines)
+: silent! 7,$d
+: let l:i = 6
+: let l:lines = split(a:lines, '\n')
+: if len(l:lines) > 0
+:   for line in l:lines
+:       call append(l:i, line)
+:       let l:i = l:i + 1
+:   endfor
+: else
+:       call append(l:i, "")
+: endif
+: call VFFfixline()
+:endfunction
+
+:function! VFFstatus (status)
+:  let g:vff_status = a:status
+:  call setline(4, 'Root: ' . g:vff_path . " [ " . g:vff_status . " ]                                   ")
+:endfunction
+
+:function! VFFfixline ()
+: if g:vff_lastline >= 7
+:     exec g:vff_lastline
+: else
+:     exec 7
+: endif
+:endfunction
+
+:function! VFFwaiting (ch)
+: call setline(4, 'Root: ' . g:vff_path . " [ " . g:vff_status . " ] " . a:ch)
 :endfunction
 
 " updates the entry line immediately but don't refresh the results until the next CursorHold event
 :function! VffBackspace ()
-:  exec "ruby $vff.text_backspace('" . g:vff_mode . "')"
+:  let g:vff_lasttext = VFFTextBackspaceSync(g:vff_mode)
 :  let g:vff_lastline = line(".")
+:  if g:vff_mode == 'grep'
+:      call setline(6, 'Find Content: ' . g:vff_lasttext)
+:  else
+:      call setline(6, 'Find File: ' . g:vff_lasttext)
+:  endif
 :  echo ""
 :  if exists("g:vff_refreshdelay")
 :    let g:vff_needrefresh = 1
 :  else
-:    exec "ruby $vff.refresh('" . g:vff_mode . "')"
+:    call VFFRefresh(g:vff_mode)
 :  endif
 :endfunction
 
 " updates the entry and results immediately
 :function! VffClear ()
-:  exec "ruby $vff.text_clear('" . g:vff_mode . "')"
+:  let g:vff_lasttext = VFFTextClearSync(g:vff_mode)
 :  let g:vff_lastline = line(".")
+:  if g:vff_mode == 'grep'
+:      call setline(6, 'Find Content: ' . g:vff_lasttext)
+:  else
+:      call setline(6, 'Find File: ' . g:vff_lasttext)
+:  endif
+:  call VFFLines('')
 :  echo ""
 :endfunction
 
@@ -590,12 +391,18 @@ EOF
 :  let l:myBufNr = bufnr ("%")
 :  let l:line = getline(".")
 :  quit
+:  if g:vff_mode == 'find'
+:    call VFFTextClearSync(g:vff_mode)
+:  endif
 :  if l:line != ""
-:    exec 'ruby $vff.relativepath("' . getcwd() . '", "/' . substitute(l:line, "([0-9]\\+):.*", "", "") . '")'
-:    silent exec "edit " . fnameescape(g:vffrubyret)
+:    let l:path = VFFRelativePathSync(getcwd(), '/' . substitute(l:line, "([0-9]\\+):.*", "", ""))
+:    silent exec "edit " . fnameescape(l:path)
 :    if g:vff_mode == 'grep'
 :      let l:offset = substitute(l:line, "^[^(]*(\\([0-9]\\+\\)):.*", "\\1", "")
 :      exec 'goto ' . l:offset
+:      if (foldclosed('.') != -1)
+:         foldopen!
+:      endif
 :    endif
 :  endif
 :  if g:vffRemoveBrowserBuffer
@@ -604,9 +411,11 @@ EOF
 :endfunction
 
 :function! VffQuit ()
-:  let &timeoutlen = g:vff_savetimeoutlen
 :  let l:myBufNr = bufnr ("%")
-:  silent! exec "bd " . l:myBufNr
+:  set nomodified
+:  exec "bd " . l:myBufNr
 :  call VffUnsetupSelect()
+:  let &timeoutlen = g:vff_savetimeoutlen
 :endfunction
+
 :endif
