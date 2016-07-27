@@ -519,7 +519,7 @@ namespace VimFastFind {
 //                                Console.WriteLine("find! {0}", line);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
-                                    foreach (string m in _grepmatcher.Match(s[2], 200)) {
+                                    foreach (string m in _grepmatcher.Match(line.Substring(line.IndexOf("match")+6), 200)) {
                                         sb.Append(m);
                                         sb.Append("\n");
                                         i++;
@@ -532,7 +532,7 @@ namespace VimFastFind {
                                     s = line.Split(new char[] { ' ', '\t' }, 3, StringSplitOptions.RemoveEmptyEntries);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
-                                    foreach (string m in _pathmatcher.Match(s[2].ToLowerInvariant(), 200)) {
+                                    foreach (string m in _pathmatcher.Match(line.Substring(line.IndexOf("match")+6).ToLowerInvariant(), 200)) {
                                         sb.Append(m);
                                         sb.Append("\n");
                                         i++;
