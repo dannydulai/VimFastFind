@@ -11,22 +11,6 @@ using Mono.Unix.Native;
 
 namespace VimFastFind
 {
-    public class Utils {
-        static public int RunProcess(string f, string a, out string output)
-        {
-            using (Process p = new Process()) {
-                p.StartInfo.FileName = f;
-                p.StartInfo.Arguments = a;
-                p.StartInfo.UseShellExecute = false;
-                p.StartInfo.CreateNoWindow = true;
-                p.StartInfo.RedirectStandardOutput = true;
-                p.Start();
-                output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit();
-                return p.ExitCode;
-            }
-        }
-    }
     public struct DirectoryEntry
     {
         public string Name { get; private set; }

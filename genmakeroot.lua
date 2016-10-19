@@ -11,6 +11,7 @@ solution "VimFastFindRoot"
 
     configuration "debug"
         defines "DEBUG"
+        defines "TRACE"
         flags "Symbols"
         targetdir "bin/debug"
         objectsdir "obj/debug"
@@ -30,14 +31,13 @@ solution "VimFastFindRoot"
         kind "ConsoleApp"
         language "C#"
 
-        linksystemlibs "System"
-
-        if HAVE_MONO_POSIX then 
-            linksystemlibs "Mono.Posix"
-        end
+        linksystemlibs {
+            "System",
+            "System.Core",
+            "Mono.Posix",
+        }
 
         flags { "Unsafe" }
-
 
         compilefiles {
             "server.cs",
