@@ -124,7 +124,10 @@ namespace VimFastFind {
                 foreach (DirectoryEntry entry in FastDirectoryScanner.RecursiveScan(_dir, skipdir => !IsFileOk(TrimPath(skipdir), true))) {
                     if (entry.IsFile) {
                         string tp = TrimPath(entry.FullPath);
-                        if (IsFileOk(tp)) _paths.Add(tp);
+                        if (IsFileOk(tp)) {
+//                            Console.WriteLine("{0}", entry.FullPath);
+                            _paths.Add(tp);
+                        }
                     }
                 }
                 sw.Stop();
