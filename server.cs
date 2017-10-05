@@ -13,6 +13,13 @@ using System.Net.Sockets;
 using System.Linq;
 
 namespace VimFastFind {
+    static class Log {
+        static StreamWriter sw = new StreamWriter(Path.Combine(Path.GetTempPath(), "vff.log.txt"));
+        static public void WriteLine(string cmd, params object[] args) {
+            sw.WriteLine(String.Format(cmd, args));
+            sw.Flush();
+        }
+    }
     abstract class Matcher : IDisposable {
         protected string _dir;
         protected List<string> _paths = new List<string>();
@@ -74,13 +81,13 @@ namespace VimFastFind {
         public void Include(string e) {
             var mr = new MatchRule(true, e);
             _rules.Add(mr);
-//            Console.WriteLine("+ {0}", e);
+            Log.WriteLine("rule: include {0}", e);
         }
         public void Exclude(string e) {
             var mr = new MatchRule(false, e);
             mr.Include = false;
             _rules.Add(mr);
-//            Console.WriteLine("- {0}", e);
+            Log.WriteLine("rule exclude {0}", e);
         }
 
         public string InitDir { get; private set; }
@@ -102,7 +109,7 @@ namespace VimFastFind {
             while (_dir.Length > 0 && _dir[_dir.Length-1] == Path.DirectorySeparatorChar)
                 _dir = _dir.Substring(0, _dir.Length-1);
 
-//            Console.WriteLine("watching {0}", _dir);
+            Log.WriteLine("watching dir {0}", _dir);
 
             _fswatcher = new DirectoryWatcher(_dir);
             _fswatcher.EnableWatchingContents = true;
@@ -125,13 +132,13 @@ namespace VimFastFind {
                     if (entry.IsFile) {
                         string tp = TrimPath(entry.FullPath);
                         if (IsFileOk(tp)) {
-//                            Console.WriteLine("{0}", entry.FullPath);
+                            Log.WriteLine("found path {0}", entry.FullPath);
                             _paths.Add(tp);
                         }
                     }
                 }
                 sw.Stop();
-                Console.WriteLine("[{0}ms] {1} paths found on initial scan of {2}", sw.ElapsedMilliseconds, _paths.Count, this.InitDir);
+                Log.WriteLine("[{0}ms] {1} paths found on initial scan of {2}", sw.ElapsedMilliseconds, _paths.Count, this.InitDir);
             }
             OnPathsInited();
         }
@@ -143,7 +150,7 @@ namespace VimFastFind {
                 dirpath += Path.DirectorySeparatorChar;
 
             if (!Directory.Exists(fulldirpath)) {
-//                Console.WriteLine("subdir removed: {0}", dirpath);
+                Log.WriteLine("subdir removed: {0}", dirpath);
                 lock (_paths) {
                     int i = 0;
                     while (i < _paths.Count) {
@@ -155,7 +162,7 @@ namespace VimFastFind {
                     }
                 }
             } else {
-//                Console.WriteLine("subdir changed: {0}", dirpath);
+                Log.WriteLine("subdir changed: {0}", dirpath);
 
                 HashSet<string> filesindir = new HashSet<string>(Directory.GetFiles(fulldirpath).Where(x => IsFileOk(x)).Select(x => TrimPath(x)));
 
@@ -188,7 +195,7 @@ namespace VimFastFind {
         {
             if (!IsFileOk(fullpath)) return;
 
-//            Console.WriteLine("filechnaged: {0}", fullpath);
+            Log.WriteLine("filechnaged: {0}", fullpath);
 
             if (File.Exists(fullpath)) {
                 lock (_paths) {
@@ -259,7 +266,7 @@ namespace VimFastFind {
                 mre.WaitOne();
             }
 
-            //                Console.WriteLine("{0}ms elapsed", sw.ElapsedMilliseconds);
+            Log.WriteLine("Match on {0}, count {1}, {1}ms elapsed", s, count, sw.ElapsedMilliseconds);
             return matches;
         }
 
@@ -360,13 +367,13 @@ namespace VimFastFind {
                         try {
                             var fi = new FileInfo(file);
                             if (fi.Length != 0) {
-                                Console.WriteLine("IO exception opening {0} for grepping: {1} ", kvp.Value, e);
+                                Log.WriteLine("IO exception opening {0} for grepping: {1} ", kvp.Value, e);
                                 __incomingfiles.Enqueue(kvp);
                             }
                         } catch { }
 
                     } catch (Exception e) {
-                        Console.WriteLine("exception opening {0} for grepping: {1} ", kvp.Value, e);
+                        Log.WriteLine("exception opening {0} for grepping: {1} ", kvp.Value, e);
                     }
                 }
                 __queuetrigger.WaitOne();
@@ -466,7 +473,7 @@ namespace VimFastFind {
 
         void ev_client() {
             try {
-//                    Console.WriteLine("listening");
+                Log.WriteLine("listening");
                 using (Stream stream = _client.GetStream()) {
                     using (StreamWriter wtr = new StreamWriter(stream, Encoding.ASCII)) {
                         using (StreamReader rdr = new StreamReader(stream)) {
@@ -474,7 +481,7 @@ namespace VimFastFind {
                             while (true) {
                                 string line = rdr.ReadLine();
                                 if (line == null) return;
-//                                Console.WriteLine("got cmd {0}", line);
+                                Log.WriteLine("got cmd {0}", line);
 
                                 line = Regex.Replace(line, @"^\s*#.*", "");
                                 if (String.IsNullOrWhiteSpace(line)) continue;
@@ -502,7 +509,7 @@ namespace VimFastFind {
                                     }
 
                                 } else if (s[0] == "go") {
-//                                Console.WriteLine("go! {0}", s);
+                                    Log.WriteLine("go! {0}", s);
                                     if (_ownspath) _pathmatcher.Go(null);
                                     if (_ownsgrep) _grepmatcher.Go(_pathmatcher.Paths);
 
@@ -519,7 +526,7 @@ namespace VimFastFind {
 
                                 } else if (s[0] == "grep" && s[1] == "match") {
                                     s = line.Split(new char[] { ' ', '\t' }, 3, StringSplitOptions.RemoveEmptyEntries);
-//                                Console.WriteLine("find! {0}", line);
+                                    Log.WriteLine("find! {0}", line);
                                     StringBuilder sb = new StringBuilder();
                                     int i = 0;
                                     foreach (string m in _grepmatcher.Match(line.Substring(line.IndexOf("match")+6), 200)) {
@@ -527,7 +534,7 @@ namespace VimFastFind {
                                         sb.Append("\n");
                                         i++;
                                     }
-                                    //                                Console.WriteLine(sb.ToString());
+//                                    Console.WriteLine(sb.ToString());
                                     wtr.Write(sb.ToString());
                                     wtr.Write("\n");
 
@@ -556,7 +563,7 @@ namespace VimFastFind {
                     }
                 }
             } catch (Exception ex) {
-                Console.WriteLine("got exception {0}", ex.ToString());
+                Log.WriteLine("got exception {0}", ex.ToString());
             } finally {
                 if (_client != null) {
                     try { _client.Close(); } catch { }
